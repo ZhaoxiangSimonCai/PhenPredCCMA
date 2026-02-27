@@ -15,7 +15,7 @@ from sklearn.feature_selection import VarianceThreshold
 from sklearn.preprocessing import StandardScaler, PowerTransformer, normalize
 
 
-class CLinesDatasetDepMap23Q2(Dataset):
+class CLinesDatasetDepMap24Q4(Dataset):
     def __init__(
         self,
         datasets,
@@ -94,7 +94,7 @@ class CLinesDatasetDepMap23Q2(Dataset):
         print(self)
 
     def __str__(self) -> str:
-        str = f"DepMap23Q2 | Samples = {len(self.samples):,}"
+        str = f"DepMap24Q4 | Samples = {len(self.samples):,}"
 
         for n, df in self.dfs.items():
             f_masked = df.shape[1] - self.features_mask[n].sum()
@@ -264,7 +264,7 @@ class CLinesDatasetDepMap23Q2(Dataset):
 
     def _import_mutations(self):
         self.mutations = (
-            pd.read_csv(f"{data_folder}/mutations_summary_20230202.csv", index_col=0)
+            pd.read_csv(f"{data_folder}/mutations_summary_20250318.csv", index_col=0)
             .assign(value=1)
             .query("cancer_driver == True")
         )
@@ -313,7 +313,7 @@ class CLinesDatasetDepMap23Q2(Dataset):
         # Import samplesheets
         self.ss_cmp = pd.read_csv(f"{data_folder}/model_list_20230505.csv")
 
-        self.ss_depmap = pd.read_csv(f"{data_folder}/depmap23Q2/Model.csv")
+        self.ss_depmap = pd.read_csv(f"{data_folder}/depmap24Q4/Model.csv")
         self.ss_depmap.rename(columns=col_rename, inplace=True)
 
         # Map sample IDs to Sanger IDs
@@ -340,6 +340,8 @@ class CLinesDatasetDepMap23Q2(Dataset):
                     large_intestine="Large Intestine",
                     lung="Lung",
                     ovary="Ovary",
+                    haematopoietic_and_lymphoid_tissue="Haematopoietic and Lymphoid",
+                    bone_marrow="Other tissue",
                     upper_aerodigestive_tract="Other tissue",
                     ascites="Other tissue",
                     pleural_effusion="Other tissue",
@@ -642,7 +644,7 @@ class CLinesDatasetDepMap23Q2(Dataset):
             ax[1].spines[axis].set_linewidth(0.3)
 
         PhenPred.save_figure(
-            f"{plot_folder}/datasets_overlap_DepMap23Q2", extensions=["png", "pdf"]
+            f"{plot_folder}/datasets_overlap_DepMap24Q4", extensions=["png", "pdf"]
         )
 
     def plot_datasets_missing_values(
@@ -703,6 +705,6 @@ class CLinesDatasetDepMap23Q2(Dataset):
             ax.set_title(f"{self.view_name_map[n]} dataset")
 
             PhenPred.save_figure(
-                f"{plot_folder}/datasets_missing_values_DepMap23Q2_{n}",
+                f"{plot_folder}/datasets_missing_values_DepMap24Q4_{n}",
                 extensions=["png"],
             )

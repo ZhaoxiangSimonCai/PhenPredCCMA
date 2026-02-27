@@ -4,8 +4,9 @@
 import yaml
 import numpy as np
 import pandas as pd
-from sklearn.metrics import make_scorer, mean_squared_error
+from sklearn.metrics import make_scorer
 from scipy.stats import pearsonr, spearmanr
+from sklearn.metrics import mean_squared_error
 
 
 def _pearsonr(y_true, y_pred):

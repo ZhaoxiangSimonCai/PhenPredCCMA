@@ -5,47 +5,37 @@ import os
 import sys
 import time
 import json
+import argparse
 import torch
 import PhenPred
-import argparse
 import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from PhenPred.vae.Hypers import Hypers
-from sklearn.model_selection import KFold
-from PhenPred.vae.Train import CLinesTrain
+
 from PhenPred.Utils import two_vars_correlation
-from PhenPred.vae import plot_folder, data_folder, shap_folder
+from PhenPred.vae import plot_folder, data_folder
+from PhenPred.vae.Hypers import Hypers
+from PhenPred.vae.Train import CLinesTrain
 from PhenPred.vae.DatasetMOFA import CLinesDatasetMOFA
 from PhenPred.vae.DatasetMOVE import CLinesDatasetMOVE
+from PhenPred.vae.DatasetCCMA import CLinesDatasetCCMA
 from PhenPred.vae.DatasetMixOmics import CLinesDatasetMixOmics
 from PhenPred.vae.BenchmarkCRISPR import CRISPRBenchmark
 from PhenPred.vae.BenchmarkDrug import DrugResponseBenchmark
 from PhenPred.vae.BenchmarkMismatch import MismatchBenchmark
+from PhenPred.vae.BenchmarkInternal import InternalBenchmark
 from PhenPred.vae.BenchmarkProteomics import ProteomicsBenchmark
 from PhenPred.vae.BenchmarkLatentSpace import LatentSpaceBenchmark
 from PhenPred.vae.DatasetDepMap23Q2 import CLinesDatasetDepMap23Q2
+from PhenPred.vae.DatasetDepMap24Q4 import CLinesDatasetDepMap24Q4
 
 torch.manual_seed(0)
 np.random.seed(0)
 
-if __name__ == "__main__":
-    # Class variables - Hyperparameters
-    start_time = time.time()
 
-    # timestamp = "20240805_132345"
-    # hyperparameters = Hypers.read_hyperparameters(timestamp=timestamp)
-    hyperparameters = Hypers.read_hyperparameters()
-    # hyperparameters = Hypers.read_hyperparameters(hypers_json=f"{plot_folder}/files/optuna_MOSA_updated_model_weights_hyperparameters.json")
-
-    # DIP-VAE
-    # hyperparameters["dip_vae_type"] = "i"
-    # hyperparameters["lambda_d"] = 0.1
-    # hyperparameters["lambda_od"] = 0.01
-
-    # Load the first dataset
-    clines_db = CLinesDatasetDepMap23Q2(
+def build_dataset(hyperparameters):
+    dataset_kwargs = dict(
         datasets=hyperparameters["datasets"],
         labels_names=hyperparameters["labels"],
         standardize=hyperparameters["standardize"],
@@ -54,29 +44,144 @@ if __name__ == "__main__":
         feature_miss_rate_thres=hyperparameters["feature_miss_rate_thres"],
     )
 
-    # Train and predictions
+    dataset_class = str(hyperparameters.get("dataset_class", "depmap24q4")).lower()
+
+    if dataset_class in {"depmap24q4", "depmap24", "24q4"}:
+        return CLinesDatasetDepMap24Q4(**dataset_kwargs)
+
+    if dataset_class in {"depmap23q2", "depmap23", "23q2"}:
+        return CLinesDatasetDepMap23Q2(**dataset_kwargs)
+
+    if dataset_class == "ccma":
+        dataset_kwargs["min_views_per_sample"] = hyperparameters.get(
+            "min_views_per_sample", 2
+        )
+        dataset_kwargs["align_to_reference_features"] = hyperparameters.get(
+            "align_to_reference_features", False
+        )
+        dataset_kwargs["reference_hypers_json"] = hyperparameters.get(
+            "reference_hypers_json"
+        ) or hyperparameters.get("transfer_hypers_json")
+        dataset_kwargs["reference_feature_views"] = hyperparameters.get(
+            "reference_feature_views"
+        )
+        dataset_kwargs["labels_mutations_file"] = hyperparameters.get(
+            "labels_mutations_file"
+        )
+        return CLinesDatasetCCMA(**dataset_kwargs)
+
+    raise ValueError(f"Unsupported dataset_class='{dataset_class}'")
+
+
+def safe_stratify_by_tissue(data, hyperparameters):
+    if "tissue" not in hyperparameters.get("labels", []):
+        return None
+
+    try:
+        strat = data.samples_by_tissue("Haematopoietic and Lymphoid")
+    except Exception:
+        return None
+
+    return strat if strat.nunique() > 1 else None
+
+
+def save_hyperparameters(hyperparameters, timestamp):
+    json.dump(
+        hyperparameters,
+        open(f"{plot_folder}/files/{timestamp}_hyperparameters.json", "w"),
+        indent=4,
+        default=lambda o: "<not serializable>",
+    )
+
+
+def get_cvtest_datasets(hyperparameters, train):
+    if hyperparameters["skip_cv"]:
+        return {}
+
+    cvtest_datasets = {}
+    missing_views = []
+
+    for k in hyperparameters["datasets"]:
+        dpath = f"{plot_folder}/files/{train.timestamp}_imputed_{k}_cvtest.csv.gz"
+        if os.path.isfile(dpath):
+            cvtest_datasets[k] = pd.read_csv(dpath, index_col=0)
+        else:
+            missing_views.append(k)
+
+    if len(missing_views) == 0:
+        print(
+            "Reusing saved CV test predictions from primary training "
+            f"({len(cvtest_datasets)} views)."
+        )
+        return cvtest_datasets
+
+    print(
+        "Missing saved CV test predictions for views: "
+        f"{', '.join(missing_views)}. Re-running CV with configured strategy."
+    )
+    _, cvtest_datasets = train.training(drop_last=True, skip_cv_save=False)
+    return cvtest_datasets
+
+
+def run_internal_benchmark(hyperparameters, train, clines_db, vae_predicted):
+    cvtest_datasets = get_cvtest_datasets(hyperparameters, train)
+
+    internal_benchmark = InternalBenchmark(
+        train.timestamp, clines_db, vae_predicted, cvtest_datasets=cvtest_datasets
+    )
+    internal_benchmark.run()
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Train MOSA/GMVAE and run configured benchmarks."
+    )
+    parser.add_argument(
+        "--hypers-json",
+        default=None,
+        help=(
+            "Optional path to a hyperparameters JSON file. "
+            "If omitted, defaults to reports/vae/files/hyperparameters.json."
+        ),
+    )
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    start_time = time.time()
+    hyperparameters = Hypers.read_hyperparameters(hypers_json=args.hypers_json)
+
+    clines_db = build_dataset(hyperparameters)
     train = CLinesTrain(
         clines_db,
         hyperparameters,
         verbose=hyperparameters["verbose"],
-        stratify_cv_by=clines_db.samples_by_tissue("Haematopoietic and Lymphoid"),
+        stratify_cv_by=safe_stratify_by_tissue(clines_db, hyperparameters),
     )
-
-    # train.run(run_timestamp=hyperparameters["load_run"])
-    # train.run(run_timestamp=timestamp)
     train.run()
 
-    if "skip_benchmarks" in hyperparameters and hyperparameters["skip_benchmarks"]:
+    benchmark_mode = str(hyperparameters.get("benchmark_mode", "full")).lower()
+    skip_benchmarks = bool(hyperparameters.get("skip_benchmarks", False))
+
+    if skip_benchmarks or benchmark_mode == "none":
+        save_hyperparameters(hyperparameters, train.timestamp)
+        total_time = time.time() - start_time
+        print(f"Total time: {int(total_time // 3600):02d}:{int((total_time % 3600) // 60):02d}")
         sys.exit(0)
 
-    cvtest_datasets = {
-        k: pd.read_csv(f"{plot_folder}/files/{train.timestamp}_{k}_cvtest.csv")
-        for k in hyperparameters["datasets"]
-    }
-
-    # Load imputed data
     vae_imputed, vae_latent = train.load_vae_reconstructions()
     vae_predicted, _ = train.load_vae_reconstructions(mode="all")
+
+    if benchmark_mode == "internal":
+        run_internal_benchmark(hyperparameters, train, clines_db, vae_predicted)
+        save_hyperparameters(hyperparameters, train.timestamp)
+        total_time = time.time() - start_time
+        print(f"Total time: {int(total_time // 3600):02d}:{int((total_time % 3600) // 60):02d}")
+        sys.exit(0)
+
+    if benchmark_mode != "full":
+        raise ValueError(f"Unsupported benchmark_mode='{benchmark_mode}'")
 
     mofa_imputed, mofa_latent = CLinesDatasetMOFA.load_reconstructions(clines_db)
     move_diabetes_imputed, move_diabetes_latent = (
@@ -84,12 +189,9 @@ if __name__ == "__main__":
     )
     _, mixOmics_latent = CLinesDatasetMixOmics.load_reconstructions(clines_db)
 
-    # Transcriptomics benchmark
     samples_mgexp = ~clines_db.dfs["transcriptomics"].isnull().all(axis=1)
-
     gexp_gdsc = pd.read_csv(f"{data_folder}/transcriptomics.csv", index_col=0).T
     gexp_move = vae_imputed["transcriptomics"]
-
     samples = set(gexp_gdsc.index).intersection(gexp_move.index)
     genes = list(set(gexp_gdsc.columns).intersection(gexp_move.columns))
 
@@ -106,7 +208,6 @@ if __name__ == "__main__":
     )
 
     _, ax = plt.subplots(1, 1, figsize=(0.5, 2), dpi=600)
-
     sns.boxplot(
         data=gexp_corr,
         x="with_gexp",
@@ -132,16 +233,14 @@ if __name__ == "__main__":
     )
 
     ax.set(
-        title=f"",
+        title="",
         ylabel="Correlation between reconstructed\nand GDSC transcriptomics (Pearson's r)",
         xlabel="Sample with transcriptomics\nduring MOSA training",
     )
-
     PhenPred.save_figure(
         f"{plot_folder}/{train.timestamp}_reconstructed_gexp_correlation_boxplot"
     )
 
-    # Run Latent Spaces Benchmark
     latent_benchmark = LatentSpaceBenchmark(
         train.timestamp,
         clines_db,
@@ -150,31 +249,23 @@ if __name__ == "__main__":
         move_diabetes_latent,
         mixOmics_latent,
     )
-
     latent_benchmark.plot_method_correlations()
-
     latent_benchmark.plot_latent_spaces(
         markers=clines_db.get_features(
             dict(
-                metabolomics=[
-                    "1-methylnicotinamide",
-                ],
+                metabolomics=["1-methylnicotinamide"],
                 transcriptomics=["VIM"],
             )
         ),
     )
 
-    # Correlate features
     plot_df = clines_db.get_features(
         dict(
-            metabolomics=[
-                "1-methylnicotinamide",
-            ],
+            metabolomics=["1-methylnicotinamide"],
             transcriptomics=["VIM", "CDH1", "NNMT"],
             proteomics=["VIM", "CDH1"],
         )
     )
-
     g = sns.clustermap(
         plot_df.corr(),
         cmap="RdYlGn",
@@ -189,38 +280,33 @@ if __name__ == "__main__":
         cbar_kws={"shrink": 0.5},
         figsize=(3.0, 1.5),
     )
-
     if g.ax_cbar:
         g.ax_cbar.set_ylabel("Pearson\ncorrelation")
-
     g.ax_heatmap.set_xlabel("")
     g.ax_heatmap.set_ylabel("")
+    PhenPred.save_figure(f"{plot_folder}/selected_features_clustermap")
 
-    PhenPred.save_figure(
-        f"{plot_folder}/selected_features_clustermap",
-    )
-
-    # Run drug benchmark
     print("Running drug benchmark")
     dres_benchmark = DrugResponseBenchmark(
         train.timestamp, clines_db, vae_imputed, mofa_imputed, move_diabetes_imputed
     )
     dres_benchmark.run()
 
-    # Run proteomics benchmark
     print("Running proteomics benchmark")
     proteomics_benchmark = ProteomicsBenchmark(
         train.timestamp, clines_db, vae_imputed, mofa_imputed, move_diabetes_imputed
     )
     proteomics_benchmark.run()
-    proteomics_benchmark.copy_number(
-        proteomics_only=True,
-    )
+    proteomics_benchmark.copy_number(proteomics_only=True)
 
-    # Run CRISPR benchmark
     print("Running CRISPR benchmark")
     crispr_benchmark = CRISPRBenchmark(
-        train.timestamp, clines_db, vae_imputed, mofa_imputed
+        train.timestamp,
+        clines_db,
+        vae_imputed,
+        mofa_imputed,
+        skew_threshold=-0.5,
+        vae_latent=vae_latent,
     )
     crispr_benchmark.run()
     crispr_benchmark.gene_skew_correlation()
@@ -233,36 +319,15 @@ if __name__ == "__main__":
         ]
     )
 
-    # Make CV predictions
-    # hyperparameters["skip_cv"] = False
     if not hyperparameters["skip_cv"]:
         print("Running mismatch benchmark with CV")
-        if hyperparameters["load_run"] is None:
-            _, cvtest_datasets = train.training(
-                cv=KFold(n_splits=10, shuffle=True).split(train.data)
-            )
-
-        cvtest_datasets = {
-            k: pd.read_csv(
-                f"{plot_folder}/files/{train.timestamp}_imputed_{k}_cvtest.csv.gz",
-                index_col=0,
-            )
-            for k in hyperparameters["datasets"]
-        }
-
-        # Run mismatch benchmark
+        cvtest_datasets = get_cvtest_datasets(hyperparameters, train)
         mismatch_benchmark = MismatchBenchmark(
             train.timestamp, clines_db, vae_predicted, cvtest_datasets
         )
         mismatch_benchmark.run()
 
-    # Write the hyperparameters to json file
-    json.dump(
-        hyperparameters,
-        open(f"{plot_folder}/files/{train.timestamp}_hyperparameters.json", "w"),
-        indent=4,
-        default=lambda o: "<not serializable>",
-    )
+    save_hyperparameters(hyperparameters, train.timestamp)
 
     total_time = time.time() - start_time
     hours = int(total_time // 3600)

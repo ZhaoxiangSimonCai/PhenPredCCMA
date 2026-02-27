@@ -17,11 +17,19 @@ from PhenPred.vae import data_folder, plot_folder
 from statsmodels.stats.multitest import multipletests
 from PhenPred.vae.Utils import two_vars_correlation, LModel
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 
 
 class CRISPRBenchmark:
     def __init__(
-        self, timestamp, data, vae_imputed, mofa_imputed, min_obs=15, skew_threshold=-2
+        self,
+        timestamp,
+        data,
+        vae_imputed,
+        mofa_imputed,
+        min_obs=15,
+        skew_threshold=-2,
+        vae_latent=None,
     ):
         self.timestamp = timestamp
 
@@ -31,10 +39,19 @@ class CRISPRBenchmark:
         self.data = data
         self.vae_imputed = vae_imputed
         self.mofa_imputed = mofa_imputed
+        self.vae_latent = vae_latent
 
         # CRISPR-Cas9 datasets
         self.df_original = data.dfs["crisprcas9"].dropna(how="all").dropna(axis=1)
         self.df_vae = self.vae_imputed["crisprcas9"]
+
+        self.skew_df = pd.concat(
+            [
+                self.df_original.apply(skew).astype(float).rename("skew_orig"),
+                self.df_vae.apply(skew).astype(float).rename("skew_mosa"),
+            ],
+            axis=1,
+        )
 
         # Genomics
         self.mutations = self.data.mutations.add_suffix("_mut")
@@ -68,6 +85,9 @@ class CRISPRBenchmark:
         self.transcriptomics = self.data.dfs["transcriptomics"].dropna(how="all")
         # self.transcriptomics = self.vae_imputed["transcriptomics"]
 
+        # Copy number
+        self.copynumber = self.data.dfs["copynumber"].dropna(how="all")
+
         # Sample sheet
         self.ss = data.samplesheet.copy()
 
@@ -76,35 +96,73 @@ class CRISPRBenchmark:
 
     def run(self, run_associations=True):
         if run_associations:
-            if not os.path.exists(
-                f"{plot_folder}/crispr/{self.timestamp}_genomics_crisprcas9.csv.gz"
-            ):
+            base_path = f"{plot_folder}/crispr/{self.timestamp}"
+            population_correction = True
+            standardize = True
+            pop_suffix = "_remove_latent_n3_no_tissue" if population_correction else ""
+
+            # Genomics associations
+            genomics_file = f"{base_path}_genomics_crisprcas9{pop_suffix}.csv.gz"
+            if not os.path.exists(genomics_file):
                 self.lm_genomics = self.genomic_associations()
                 self.lm_genomics.to_csv(
-                    f"{plot_folder}/crispr/{self.timestamp}_genomics_crisprcas9.csv.gz",
+                    genomics_file,
                     compression="gzip",
                     index=False,
                 )
             else:
-                self.lm_genomics = pd.read_csv(
-                    f"{plot_folder}/crispr/{self.timestamp}_genomics_crisprcas9.csv.gz"
-                )
+                self.lm_genomics = pd.read_csv(genomics_file)
 
-            if not os.path.exists(
-                f"{plot_folder}/crispr/{self.timestamp}_transcriptomics_crisprcas9.csv.gz"
-            ):
-                self.lm_transcriptomics = self.transcriptomics_associations()
+            # Transcriptomics associations
+            transcriptomics_file = f"{base_path}_transcriptomics_crisprcas9{pop_suffix}_standardized{standardize}.csv.gz"
+            if not os.path.exists(transcriptomics_file):
+                self.lm_transcriptomics = self.transcriptomics_associations(
+                    population_correction=population_correction,
+                    standardize=standardize,
+                )
                 self.lm_transcriptomics.to_csv(
-                    f"{plot_folder}/crispr/{self.timestamp}_transcriptomics_crisprcas9.csv.gz",
+                    transcriptomics_file,
                     compression="gzip",
                     index=False,
                 )
             else:
-                self.lm_transcriptomics = pd.read_csv(
-                    f"{plot_folder}/crispr/{self.timestamp}_transcriptomics_crisprcas9.csv.gz"
-                )
+                self.lm_transcriptomics = pd.read_csv(transcriptomics_file)
 
-        self.associations_scatter_pvals(self.lm_genomics)
+            # Copy number associations
+            # copynumber_file = f"{base_path}_copynumber_crisprcas9{pop_suffix}.csv.gz"
+            # if not os.path.exists(copynumber_file):
+            #     self.lm_copynumber = self.copynumber_associations(
+            #         population_correction=population_correction
+            #     )
+            #     self.lm_copynumber.to_csv(
+            #         copynumber_file,
+            #         compression="gzip",
+            #         index=False,
+            #     )
+            # else:
+            #     self.lm_copynumber = pd.read_csv(copynumber_file)
+
+            # # Tissue-level transcriptomics associations
+            # transcriptomics_tissue_file = (
+            #     f"{base_path}_transcriptomics_crisprcas9_tissue{pop_suffix}.csv.gz"
+            # )
+            # if not os.path.exists(transcriptomics_tissue_file):
+            #     self.lm_transcriptomics_tissue = (
+            #         self.transcriptomics_associations_tissue_level(
+            #             population_correction=population_correction
+            #         )
+            #     )
+            #     self.lm_transcriptomics_tissue.to_csv(
+            #         transcriptomics_tissue_file,
+            #         compression="gzip",
+            #         index=False,
+            #     )
+            # else:
+            #     self.lm_transcriptomics_tissue = pd.read_csv(
+            #         transcriptomics_tissue_file
+            #     )
+
+        # self.associations_scatter_pvals(self.lm_genomics)
         self.gene_skew_correlation()
 
     def gene_skew_correlation(self):
@@ -266,7 +324,9 @@ class CRISPRBenchmark:
 
         return lm_genomics
 
-    def transcriptomics_associations(self):
+    def transcriptomics_associations(
+        self, population_correction=False, standardize=True
+    ):
         # Covariates
         covs = pd.concat(
             [
@@ -276,15 +336,7 @@ class CRISPRBenchmark:
                 self.ss["growth_properties_broad"]
                 .str.get_dummies()
                 .add_prefix("broad_"),
-                pd.get_dummies(
-                    self.ss["tissue"].apply(
-                        lambda x: (
-                            x
-                            if x in ["Haematopoietic and Lymphoid", "Lung"]
-                            else "Other"
-                        )
-                    )
-                ),
+                # pd.get_dummies(self.ss["tissue"]),
             ],
             axis=1,
         )
@@ -302,16 +354,7 @@ class CRISPRBenchmark:
 
         covs = covs.loc[:, covs.std() > 0]
 
-        y_features = pd.concat(
-            [
-                self.df_vae.apply(skew).astype(float).rename("vae"),
-                self.df_original.apply(skew).astype(float).rename("orig"),
-            ],
-            axis=1,
-        )
-        y_features = list(
-            y_features.loc[(y_features < self.skew_threshold).any(axis=1)].index
-        )
+        y_features = (self.df_vae.abs() > 0.5).sum() >= 3
 
         # Transcriptomics ~ CRISPR MOSA
         samples = list(
@@ -321,29 +364,61 @@ class CRISPRBenchmark:
         )
 
         x = self.vae_imputed["transcriptomics"].loc[samples]
-        x_features = x.var().sort_values(ascending=False).index[:5000]
+        # x_features = x.var().sort_values(ascending=False).index[:5000]
+        x_features = (x < 0).sum() >= 3
 
         # select top 5000 variable genes from x
         x = x.loc[:, x_features]
 
         cov_vae = covs.loc[samples].copy()
-        # add first 10 principal components from gexp data as covariates
-        pca = PCA(n_components=5).fit(x)
-        cov_vae = pd.concat(
-            [
-                cov_vae,
-                pd.DataFrame(
-                    pca.transform(x),
-                    index=samples,
-                    columns=[f"PC{i}" for i in range(1, 6)],
-                ),
-            ],
-            axis=1,
-        )
+        # add latent variables as covariates
+        if population_correction:
+            if self.vae_latent is not None:
+                cov_vae = pd.concat(
+                    [
+                        cov_vae,
+                        self.vae_latent.loc[samples, :],
+                    ],
+                    axis=1,
+                )
+            else:
+                pca = PCA(n_components=5).fit(x)
+                cov_vae = pd.concat(
+                    [
+                        cov_vae,
+                        pd.DataFrame(
+                            pca.transform(x),
+                            index=samples,
+                            columns=[f"PC{i}" for i in range(1, 6)],
+                        ),
+                    ],
+                    axis=1,
+                )
+
+        # Standardize both Y and X features before fitting the model if standardize=True
+        y_data = self.df_vae.loc[samples, y_features]
+
+        if standardize:
+            # Scale Y
+            y_scaler = StandardScaler()
+            y_scaled = pd.DataFrame(
+                y_scaler.fit_transform(y_data),
+                index=y_data.index,
+                columns=y_data.columns,
+            )
+
+            # Scale X
+            x_scaler = StandardScaler()
+            x_scaled = pd.DataFrame(
+                x_scaler.fit_transform(x), index=x.index, columns=x.columns
+            )
+        else:
+            y_scaled = y_data
+            x_scaled = x
 
         lm_transcriptomics_vae = LModel(
-            Y=self.df_vae.loc[samples, y_features],
-            X=x.loc[samples],
+            Y=y_scaled,
+            X=x_scaled.loc[samples],
             M=cov_vae.loc[samples],
         ).fit_matrix()
 
@@ -363,23 +438,54 @@ class CRISPRBenchmark:
         x = x.loc[:, x_features]
 
         cov_orig = covs.loc[samples].copy()
-        # add first 10 principal components from gexp data as covariates
-        pca = PCA(n_components=5).fit(x)
-        cov_orig = pd.concat(
-            [
-                cov_orig,
-                pd.DataFrame(
-                    pca.transform(x),
-                    index=samples,
-                    columns=[f"PC{i}" for i in range(1, 6)],
-                ),
-            ],
-            axis=1,
-        )
+        # add first 5 principal components from gexp data as covariates
+        if population_correction:
+            if self.vae_latent is not None:
+                cov_orig = pd.concat(
+                    [
+                        cov_orig,
+                        self.vae_latent.loc[samples, :],
+                    ],
+                    axis=1,
+                )
+            else:
+                pca = PCA(n_components=5).fit(x)
+                cov_orig = pd.concat(
+                    [
+                        cov_orig,
+                        pd.DataFrame(
+                            pca.transform(x),
+                            index=samples,
+                            columns=[f"PC{i}" for i in range(1, 6)],
+                        ),
+                    ],
+                    axis=1,
+                )
+
+        # Standardize both Y and X features before fitting the model if standardize=True
+        y_data = self.df_original.loc[samples]
+
+        if standardize:
+            # Scale Y
+            y_scaler = StandardScaler()
+            y_scaled = pd.DataFrame(
+                y_scaler.fit_transform(y_data),
+                index=y_data.index,
+                columns=y_data.columns,
+            )
+
+            # Scale X
+            x_scaler = StandardScaler()
+            x_scaled = pd.DataFrame(
+                x_scaler.fit_transform(x), index=x.index, columns=x.columns
+            )
+        else:
+            y_scaled = y_data
+            x_scaled = x
 
         lm_transcriptomics_orig = LModel(
-            Y=self.df_original.loc[samples],
-            X=x.loc[samples],
+            Y=y_scaled,
+            X=x_scaled.loc[samples],
             M=cov_orig.loc[samples],
         ).fit_matrix()
 
@@ -402,6 +508,328 @@ class CRISPRBenchmark:
         )
 
         return lm_transcriptomics
+
+    def transcriptomics_associations_tissue_level(self, population_correction=False):
+        """Run tissue-specific transcriptomic associations with CRISPR-Cas9 data"""
+
+        # Base covariates excluding tissue
+        covs = pd.concat(
+            [
+                self.ss["growth_properties_sanger"]
+                .str.get_dummies()
+                .add_prefix("sanger_"),
+                self.ss["growth_properties_broad"]
+                .str.get_dummies()
+                .add_prefix("broad_"),
+            ],
+            axis=1,
+        )
+
+        # Add CRISPR and expression measurement indicators
+        cas9_measured_samples = self.df_original.index
+        gexp_measured_samples = self.transcriptomics.index
+
+        covs["cas9"] = covs.index.isin(
+            list(set(cas9_measured_samples) - set(gexp_measured_samples))
+        ).astype(int)
+        covs["gexp"] = covs.index.isin(
+            list(set(gexp_measured_samples) - set(cas9_measured_samples))
+        ).astype(int)
+        covs["cas9_gexp"] = covs.index.isin(
+            list(set(cas9_measured_samples).intersection(gexp_measured_samples))
+        ).astype(int)
+
+        # Filter covariates with no variation
+        covs = covs.loc[:, covs.std() > 0]
+
+        # Get genes with significant skew in either original or VAE data
+        y_features = pd.concat(
+            [
+                self.df_vae.apply(skew).astype(float).rename("vae"),
+                self.df_original.apply(skew).astype(float).rename("orig"),
+            ],
+            axis=1,
+        )
+        y_features = list(
+            y_features.loc[(y_features < self.skew_threshold).any(axis=1)].index
+        )
+
+        # Get unique tissues with minimum sample size
+        min_samples_per_tissue = 30
+        tissue_counts = self.ss["tissue"].value_counts()
+        valid_tissues = tissue_counts[
+            tissue_counts >= min_samples_per_tissue
+        ].index.tolist()
+
+        # Initialize results storage
+        all_tissue_results = []
+
+        # Run analysis for each tissue type
+        for tissue in valid_tissues:
+            print(f"\nProcessing tissue: {tissue}")
+
+            # Get tissue-specific samples
+            tissue_samples = self.ss[self.ss["tissue"] == tissue].index
+
+            # MOSA analysis
+            vae_samples = list(
+                set(self.df_vae.dropna().index)
+                .intersection(self.vae_imputed["transcriptomics"].index)
+                .intersection(covs.reindex(index=self.df_vae.index).dropna().index)
+                .intersection(tissue_samples)
+            )
+
+            if len(vae_samples) < min_samples_per_tissue:
+                print(
+                    f"Skipping {tissue} - insufficient VAE samples: {len(vae_samples)}"
+                )
+                continue
+
+            # Get top 500 variable genes for this tissue
+            x_tissue = self.vae_imputed["transcriptomics"].loc[vae_samples]
+            x_features = x_tissue.var().sort_values(ascending=False).index[:500]
+            x = x_tissue.loc[:, x_features]
+
+            # Add PCA components as covariates
+            cov_vae = covs.loc[vae_samples].copy()
+            if population_correction:
+                pca = PCA(n_components=5).fit(x)
+                cov_vae = pd.concat(
+                    [
+                        cov_vae,
+                        pd.DataFrame(
+                            pca.transform(x),
+                            index=vae_samples,
+                            columns=[f"PC{i}" for i in range(1, 6)],
+                        ),
+                    ],
+                    axis=1,
+                )
+
+            # Fit MOSA model
+            lm_transcriptomics_vae = LModel(
+                Y=self.df_vae.loc[vae_samples, y_features],
+                X=x.loc[vae_samples],
+                M=cov_vae.loc[vae_samples],
+            ).fit_matrix()
+
+            lm_transcriptomics_vae = LModel.multipletests(
+                lm_transcriptomics_vae, idx_cols=["x_id"]
+            ).sort_values("fdr")
+            lm_transcriptomics_vae = lm_transcriptomics_vae.set_index(["y_id", "x_id"])
+
+            # Original data analysis
+            orig_samples = list(
+                set(self.df_original.dropna().index)
+                .intersection(self.transcriptomics.index)
+                .intersection(covs.reindex(index=self.df_vae.index).dropna().index)
+                .intersection(tissue_samples)
+            )
+
+            # Use same gene set as VAE analysis
+            x = self.transcriptomics.loc[orig_samples, x_features]
+
+            # Add PCA components as covariates
+            cov_orig = covs.loc[orig_samples].copy()
+            if population_correction:
+                pca = PCA(n_components=5).fit(x)
+                cov_orig = pd.concat(
+                    [
+                        cov_orig,
+                        pd.DataFrame(
+                            pca.transform(x),
+                            index=orig_samples,
+                            columns=[f"PC{i}" for i in range(1, 6)],
+                        ),
+                    ],
+                    axis=1,
+                )
+
+            # Fit original data model
+            lm_transcriptomics_orig = LModel(
+                Y=self.df_original.loc[orig_samples],
+                X=x.loc[orig_samples],
+                M=cov_orig.loc[orig_samples],
+            ).fit_matrix()
+
+            lm_transcriptomics_orig = LModel.multipletests(
+                lm_transcriptomics_orig, idx_cols=["x_id"]
+            ).sort_values("fdr")
+            lm_transcriptomics_orig = lm_transcriptomics_orig.set_index(
+                ["y_id", "x_id"]
+            )
+
+            # Combine results
+            tissue_results = (
+                pd.concat(
+                    [
+                        lm_transcriptomics_orig.add_suffix("_orig"),
+                        lm_transcriptomics_vae.add_suffix("_vae"),
+                    ],
+                    axis=1,
+                )
+                .dropna()
+                .reset_index()
+            )
+
+            # Add tissue information
+            tissue_results["tissue"] = tissue
+            tissue_results["n_samples_orig"] = len(orig_samples)
+            tissue_results["n_samples_vae"] = len(vae_samples)
+
+            all_tissue_results.append(tissue_results)
+
+        # Combine all tissue results
+        final_results = pd.concat(all_tissue_results, axis=0)
+
+        return final_results
+
+    def copynumber_associations(self, population_correction=False):
+        # Covariates
+        covs = pd.concat(
+            [
+                self.ss["growth_properties_sanger"]
+                .str.get_dummies()
+                .add_prefix("sanger_"),
+                self.ss["growth_properties_broad"]
+                .str.get_dummies()
+                .add_prefix("broad_"),
+                # pd.get_dummies(self.ss["tissue"]),
+            ],
+            axis=1,
+        )
+        cas9_measured_samples = self.df_original.index
+        copynumber_measured_samples = self.copynumber.index
+        covs["cas9"] = covs.index.isin(
+            list(set(cas9_measured_samples) - set(copynumber_measured_samples))
+        ).astype(int)
+        covs["copynumber"] = covs.index.isin(
+            list(set(copynumber_measured_samples) - set(cas9_measured_samples))
+        ).astype(int)
+        covs["cas9_copynumber"] = covs.index.isin(
+            list(set(cas9_measured_samples).intersection(copynumber_measured_samples))
+        ).astype(int)
+
+        covs = covs.loc[:, covs.std() > 0]
+
+        # y_features = pd.concat(
+        #     [
+        #         self.df_vae.apply(skew).astype(float).rename("vae"),
+        #         self.df_original.apply(skew).astype(float).rename("orig"),
+        #     ],
+        #     axis=1,
+        # )
+        # y_features = list(
+        #     y_features.loc[(y_features < self.skew_threshold).any(axis=1)].index
+        # )
+
+        y_features = (self.df_vae.abs() > 0.5).sum() >= 3
+
+        # Copynumber ~ CRISPR MOSA
+        samples = list(
+            set(self.df_vae.dropna().index)
+            .intersection(self.vae_imputed["copynumber"].index)
+            .intersection(covs.reindex(index=self.df_vae.index).dropna().index)
+        )
+
+        x = self.vae_imputed["copynumber"].loc[samples]
+
+        cov_vae = covs.loc[samples].copy()
+        # add first 5 principal components from gexp data as covariates
+        if population_correction:
+            if self.vae_latent is not None:
+                cov_vae = pd.concat(
+                    [
+                        cov_vae,
+                        self.vae_latent.loc[samples, :],
+                    ],
+                    axis=1,
+                )
+            else:
+                pca = PCA(n_components=5).fit(x)
+                cov_vae = pd.concat(
+                    [
+                        cov_vae,
+                        pd.DataFrame(
+                            pca.transform(x),
+                            index=samples,
+                            columns=[f"PC{i}" for i in range(1, 6)],
+                        ),
+                    ],
+                    axis=1,
+                )
+
+        lm_copynumber_vae = LModel(
+            Y=self.df_vae.loc[samples, y_features],
+            X=x.loc[samples],
+            M=cov_vae.loc[samples],
+        ).fit_matrix()
+
+        lm_copynumber_vae = LModel.multipletests(
+            lm_copynumber_vae, idx_cols=["x_id"]
+        ).sort_values("fdr")
+        lm_copynumber_vae = lm_copynumber_vae.set_index(["y_id", "x_id"])
+
+        # Copynumber ~ CRISPR original
+        samples = list(
+            set(self.df_original.dropna().index)
+            .intersection(self.copynumber.index)
+            .intersection(covs.reindex(index=self.df_vae.index).dropna().index)
+        )
+
+        x = self.copynumber.loc[samples].fillna(0)
+
+        cov_orig = covs.loc[samples].copy()
+        # add first 5 principal components from gexp data as covariates
+        if population_correction:
+            if self.vae_latent is not None:
+                cov_orig = pd.concat(
+                    [
+                        cov_orig,
+                        self.vae_latent.loc[samples, :],
+                    ],
+                    axis=1,
+                )
+            else:
+                pca = PCA(n_components=5).fit(x)
+                cov_orig = pd.concat(
+                    [
+                        cov_orig,
+                        pd.DataFrame(
+                            pca.transform(x),
+                            index=samples,
+                            columns=[f"PC{i}" for i in range(1, 6)],
+                        ),
+                    ],
+                    axis=1,
+                )
+
+        lm_copynumber_orig = LModel(
+            Y=self.df_original.loc[samples],
+            X=x.loc[samples],
+            M=cov_orig.loc[samples],
+        ).fit_matrix()
+
+        lm_copynumber_orig = LModel.multipletests(
+            lm_copynumber_orig, idx_cols=["x_id"]
+        ).sort_values("fdr")
+
+        lm_copynumber_orig = lm_copynumber_orig.set_index(["y_id", "x_id"])
+
+        # Concatenate
+        lm_copynumber = (
+            pd.concat(
+                [
+                    lm_copynumber_orig.add_suffix("_orig"),
+                    lm_copynumber_vae.add_suffix("_vae"),
+                ],
+                axis=1,
+            )
+            .dropna()
+            .reset_index()
+        )
+
+        return lm_copynumber
 
     def associations_scatter_pvals(self, lm_genomics):
         plot_df = lm_genomics.query("fdr_orig < 0.05 | fdr_vae < 0.05").copy()

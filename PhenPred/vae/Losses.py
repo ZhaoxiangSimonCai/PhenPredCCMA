@@ -1,5 +1,6 @@
 import torch
 import PhenPred
+import inspect
 import numpy as np
 import pandas as pd
 import torch.nn as nn
@@ -160,7 +161,12 @@ class CLinesLosses:
         return -torch.mean(torch.sum(targets * log_q, dim=-1))
 
     @classmethod
-    def kl_divergence(cls, mu, log_var):
+    def kl_divergence(cls, mu, log_var, clip_min=None, clip_max=None):
+        if clip_min is not None or clip_max is not None:
+            min_v = float(clip_min) if clip_min is not None else None
+            max_v = float(clip_max) if clip_max is not None else None
+            log_var = torch.clamp(log_var, min=min_v, max=max_v)
+
         return -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp()) / len(mu)
 
     @classmethod
@@ -468,14 +474,19 @@ class CLinesLosses:
         name = args["scheduler"].lower()
 
         if name == "plateau":
-            return torch.optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer,
+            kwargs = dict(
                 mode="min",
                 threshold=args["scheduler_threshold"],
                 factor=args["scheduler_factor"],
                 patience=args["scheduler_patience"],
                 min_lr=args["scheduler_min_lr"],
-                verbose=True,
             )
+
+            # Older torch versions may not accept `verbose`.
+            sig = inspect.signature(torch.optim.lr_scheduler.ReduceLROnPlateau)
+            if "verbose" in sig.parameters:
+                kwargs["verbose"] = True
+
+            return torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, **kwargs)
         else:
             return None
