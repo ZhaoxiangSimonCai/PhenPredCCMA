@@ -15,6 +15,11 @@ from datetime import datetime
 from sklearn.model_selection import KFold
 from torch.utils.data import DataLoader, Dataset
 from sklearn.preprocessing import StandardScaler
+from PhenPred.vae.ArtifactPaths import (
+    ensure_vae_artifact_dirs,
+    runtime_artifact_path,
+    timestamped_hyperparameters_output_path,
+)
 from PhenPred.vae import CLinesVAEPlot as ploter
 from PhenPred.vae.CLinesDrugResponseBenchmark import DrugResponseBenchmark
 from PhenPred.vae.CLinesProteomicsBenchmark import ProteomicsBenchmark
@@ -595,15 +600,12 @@ def predictions(
             )
 
     # Write to file
+    ensure_vae_artifact_dirs()
     for name, df in imputed_datasets.items():
-        df.round(5).to_csv(
-            f"{_dirPlots}/files/{_timestamp}_imputed_{name}.csv.gz", compression="gzip"
-        )
+        df.round(5).to_csv(runtime_artifact_path(f"{_timestamp}_imputed_{name}.csv.gz"), compression="gzip")
 
     for name, df in latent_spaces.items():
-        df.round(5).to_csv(
-            f"{_dirPlots}/files/{_timestamp}_latent_{name}.csv.gz", compression="gzip"
-        )
+        df.round(5).to_csv(runtime_artifact_path(f"{_timestamp}_latent_{name}.csv.gz"), compression="gzip")
 
 
 if __name__ == "__main__":
@@ -611,9 +613,10 @@ if __name__ == "__main__":
     clines_db = CLinesDataset(_hyperparameters["datasets"])
 
     # Write the hyperparameters to json file
+    ensure_vae_artifact_dirs()
     json.dump(
         _hyperparameters,
-        open(f"{_dirPlots}/files/{_timestamp}_hyperparameters.json", "w"),
+        open(timestamped_hyperparameters_output_path(_timestamp), "w"),
         default=lambda o: "<not serializable>",
         indent=4,
     )

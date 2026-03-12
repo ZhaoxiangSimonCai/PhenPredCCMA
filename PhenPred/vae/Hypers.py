@@ -1,7 +1,15 @@
 import os
 import json
 import warnings
-from PhenPred.vae import data_folder, plot_folder
+from PhenPred.vae import data_folder
+from PhenPred.vae.ArtifactPaths import (
+    default_hyperparameters_path,
+    resolve_existing_path,
+    resolve_config_artifact_path,
+    resolve_runtime_artifact_path,
+    resolve_timestamped_hyperparameters_path,
+    runtime_files_folder,
+)
 from PhenPred.vae.Losses import CLinesLosses
 
 
@@ -17,9 +25,11 @@ class Hypers:
         cls, hypers_json=None, parse_torch_functions=True, timestamp=None
     ):
         if timestamp is not None:
-            hypers_json = f"{plot_folder}/files/{timestamp}_hyperparameters.json"
+            hypers_json = resolve_timestamped_hyperparameters_path(timestamp)
         elif hypers_json is None:
-            hypers_json = f"{plot_folder}/files/hyperparameters.json"
+            hypers_json = default_hyperparameters_path()
+        else:
+            hypers_json = resolve_config_artifact_path(hypers_json) or hypers_json
 
         hypers = cls.read_json(hypers_json)
 
@@ -93,6 +103,25 @@ class Hypers:
                 hypers["labels_mutations_file"] = (
                     f"{data_folder}/{hypers['labels_mutations_file']}"
                 )
+
+        for key in ("transfer_hypers_json", "reference_hypers_json"):
+            if hypers.get(key) is not None:
+                resolved_path = resolve_config_artifact_path(hypers[key])
+                if resolved_path is not None:
+                    hypers[key] = resolved_path
+
+        if hypers.get("transfer_checkpoint") is not None:
+            resolved_path = resolve_runtime_artifact_path(hypers["transfer_checkpoint"])
+            if resolved_path is not None:
+                hypers["transfer_checkpoint"] = resolved_path
+
+        if hypers.get("shap_target_genes_file") is not None:
+            resolved_path = resolve_existing_path(
+                hypers["shap_target_genes_file"],
+                search_dirs=(data_folder, runtime_files_folder),
+            )
+            if resolved_path is not None:
+                hypers["shap_target_genes_file"] = resolved_path
 
         print(f"# ---- Hyperparameters")
         print(json.dumps(hypers, indent=4, sort_keys=True))

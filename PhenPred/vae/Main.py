@@ -15,6 +15,11 @@ import matplotlib.pyplot as plt
 
 from PhenPred.Utils import two_vars_correlation
 from PhenPred.vae import plot_folder, data_folder
+from PhenPred.vae.ArtifactPaths import (
+    ensure_vae_artifact_dirs,
+    runtime_artifact_path,
+    timestamped_hyperparameters_output_path,
+)
 from PhenPred.vae.Hypers import Hypers
 from PhenPred.vae.Train import CLinesTrain
 from PhenPred.vae.DatasetMOFA import CLinesDatasetMOFA
@@ -86,9 +91,10 @@ def safe_stratify_by_tissue(data, hyperparameters):
 
 
 def save_hyperparameters(hyperparameters, timestamp):
+    ensure_vae_artifact_dirs()
     json.dump(
         hyperparameters,
-        open(f"{plot_folder}/files/{timestamp}_hyperparameters.json", "w"),
+        open(timestamped_hyperparameters_output_path(timestamp), "w"),
         indent=4,
         default=lambda o: "<not serializable>",
     )
@@ -102,7 +108,7 @@ def get_cvtest_datasets(hyperparameters, train):
     missing_views = []
 
     for k in hyperparameters["datasets"]:
-        dpath = f"{plot_folder}/files/{train.timestamp}_imputed_{k}_cvtest.csv.gz"
+        dpath = runtime_artifact_path(f"{train.timestamp}_imputed_{k}_cvtest.csv.gz")
         if os.path.isfile(dpath):
             cvtest_datasets[k] = pd.read_csv(dpath, index_col=0)
         else:
@@ -141,7 +147,7 @@ def parse_args():
         default=None,
         help=(
             "Optional path to a hyperparameters JSON file. "
-            "If omitted, defaults to reports/vae/files/hyperparameters.json."
+            "If omitted, defaults to reports/vae/configs/hyperparameters.json."
         ),
     )
     return parser.parse_args()

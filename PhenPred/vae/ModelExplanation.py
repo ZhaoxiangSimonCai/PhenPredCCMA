@@ -7,6 +7,7 @@ import pickle
 import PhenPred
 import numpy as np
 from PhenPred.vae.Hypers import Hypers
+from PhenPred.vae.ArtifactPaths import ensure_vae_artifact_dirs, runtime_artifact_path
 from PhenPred.vae.Train import CLinesTrain
 from PhenPred.vae.DatasetDepMap23Q2 import CLinesDatasetDepMap23Q2
 from PhenPred.vae import shap_folder, plot_folder
@@ -68,7 +69,6 @@ if __name__ == "__main__":
     train.save_shap(explanation.values, explain_target)
 
     # Save Explanation object
-    with open(
-        f"{shap_folder}/files/{train.timestamp}_explanation_{explain_target}.pkl", "wb"
-    ) as f:
+    ensure_vae_artifact_dirs()
+    with open(runtime_artifact_path(f"{train.timestamp}_explanation_{explain_target}.pkl"), "wb") as f:
         pickle.dump(explanation, f)

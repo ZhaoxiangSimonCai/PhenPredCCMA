@@ -1,5 +1,5 @@
 {
-    "dataname": "ccma_scratch",
+    "dataname": "ccma",
     "dataset_class": "ccma",
     "load_run": null,
     "save_model": true,
@@ -69,9 +69,9 @@
     "grad_clip_max_norm": 1.0,
     "kl_logvar_clip_min": -12.0,
     "kl_logvar_clip_max": 12.0,
-    "transfer_mode": null,
-    "transfer_checkpoint": null,
-    "transfer_hypers_json": null,
+    "transfer_mode": "shared_views_partial",
+    "transfer_checkpoint": "/mnt/hackathon-team2-8bf1s/scai/PhenPred/models/mosa_pretrained_20231023_092657.pt",
+    "transfer_hypers_json": "reports/vae/configs/history/20231023_092657_hyperparameters.json",
     "transfer_freeze_epochs": 0,
     "align_to_reference_features": true,
     "reference_hypers_json": "reports/vae/configs/history/20231023_092657_hyperparameters.json",
@@ -82,6 +82,7 @@
     ],
     "shap_target_view": "crisprcas9",
     "shap_target_gene_count": -1,
-    "shap_target_genes_file": null,
-    "shap_cross_omic_only": true
+    "shap_target_genes_file": "reports/vae/files/shap_target_genes.txt",
+    "shap_cross_omic_only": true,
+    "shap_target_chunk_size": 1
 }

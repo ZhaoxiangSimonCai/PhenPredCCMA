@@ -139,3 +139,12 @@ data/*
 .xls
 .xlsx
 reports/*
+!reports/vae/
+reports/vae/*
+!reports/vae/configs/
+reports/vae/configs/*
+!reports/vae/configs/history/
+!reports/vae/configs/*.json
+!reports/vae/configs/history/*.json
+
+models/*

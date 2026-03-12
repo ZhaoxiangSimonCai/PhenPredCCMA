@@ -11,6 +11,11 @@ import numpy as np
 from datetime import datetime
 from optuna.trial import TrialState
 from PhenPred.vae import plot_folder
+from PhenPred.vae.ArtifactPaths import (
+    config_artifact_path,
+    ensure_vae_artifact_dirs,
+    runtime_artifact_path,
+)
 from PhenPred.vae.Hypers import Hypers
 from PhenPred.vae.Train import CLinesTrain
 from sklearn.model_selection import StratifiedShuffleSplit
@@ -111,6 +116,8 @@ class OptunaOptimization:
 
 
 if __name__ == "__main__":
+    ensure_vae_artifact_dirs()
+
     # Class variables - Hyperparameters
     hyperparameters = Hypers.read_hyperparameters()
     hyperparameters["num_epochs"] = 100
@@ -133,7 +140,7 @@ if __name__ == "__main__":
         direction="minimize",
         study_name=study_name,
         load_if_exists=True,
-        storage=f"sqlite:///{plot_folder}/files/optuna_{study_name}.db",
+        storage=f"sqlite:///{runtime_artifact_path(f'optuna_{study_name}.db')}",
     )
 
     opt.optimize(
@@ -178,10 +185,7 @@ if __name__ == "__main__":
     # Save best hyperparameters
     json.dump(
         hyperparameters_opt,
-        open(
-            f"{plot_folder}/files/optuna_{filtered_opt.study_name}_hyperparameters.json",
-            "w",
-        ),
+        open(config_artifact_path(f"optuna_{filtered_opt.study_name}_hyperparameters.json"), "w"),
         indent=4,
         default=lambda o: "<not serializable>",
     )
@@ -189,32 +193,36 @@ if __name__ == "__main__":
     # Plot results
     fig = optuna.visualization.plot_param_importances(filtered_opt)
     fig.write_image(
-        f"{plot_folder}/files/optuna_{filtered_opt.study_name}_best_param_plot.pdf"
+        runtime_artifact_path(f"optuna_{filtered_opt.study_name}_best_param_plot.pdf")
     )
 
     fig = optuna.visualization.plot_optimization_history(filtered_opt)
     fig.write_image(
-        f"{plot_folder}/files/optuna_{filtered_opt.study_name}_optimization_history.pdf"
+        runtime_artifact_path(
+            f"optuna_{filtered_opt.study_name}_optimization_history.pdf"
+        )
     )
 
     fig = optuna.visualization.plot_slice(filtered_opt)
     fig.write_image(
-        f"{plot_folder}/files/optuna_{filtered_opt.study_name}_slice_plot.pdf"
+        runtime_artifact_path(f"optuna_{filtered_opt.study_name}_slice_plot.pdf")
     )
 
     fig = optuna.visualization.plot_edf(filtered_opt)
     fig.write_image(
-        f"{plot_folder}/files/optuna_{filtered_opt.study_name}_edf_plot.pdf"
+        runtime_artifact_path(f"optuna_{filtered_opt.study_name}_edf_plot.pdf")
     )
 
     fig = optuna.visualization.plot_parallel_coordinate(filtered_opt)
     fig.write_image(
-        f"{plot_folder}/files/optuna_{filtered_opt.study_name}_parallel_coordinate_plot.pdf"
+        runtime_artifact_path(
+            f"optuna_{filtered_opt.study_name}_parallel_coordinate_plot.pdf"
+        )
     )
 
     fig = optuna.visualization.plot_contour(
         filtered_opt, params=["learning_rate", "probability"]
     )
     fig.write_image(
-        f"{plot_folder}/files/optuna_{filtered_opt.study_name}_contour_plot.pdf"
+        runtime_artifact_path(f"optuna_{filtered_opt.study_name}_contour_plot.pdf")
     )

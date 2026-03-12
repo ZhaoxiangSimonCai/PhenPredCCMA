@@ -18,6 +18,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from datetime import datetime
 from PhenPred.vae import plot_folder
+from PhenPred.vae.ArtifactPaths import ensure_vae_artifact_dirs, runtime_artifact_path
 from PhenPred.vae.Hypers import Hypers
 from PhenPred.vae.Train import CLinesTrain
 from sklearn.model_selection import KFold
@@ -124,7 +125,5 @@ if __name__ == "__main__":
         remaining_datasets = [d for d in datasets if d not in selected_datasets]
 
     loss_records_df = pd.DataFrame(loss_records)
-    loss_records_df.to_csv(
-        f"{plot_folder}/files/{timestamp}_sequential_losses.csv",
-        index=False,
-    )
+    ensure_vae_artifact_dirs()
+    loss_records_df.to_csv(runtime_artifact_path(f"{timestamp}_sequential_losses.csv"), index=False)

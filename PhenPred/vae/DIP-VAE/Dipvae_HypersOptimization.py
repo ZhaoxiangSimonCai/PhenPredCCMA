@@ -12,6 +12,12 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+from PhenPred.vae.ArtifactPaths import (
+    config_artifact_path,
+    ensure_vae_artifact_dirs,
+    runtime_artifact_path,
+    timestamped_hyperparameters_output_path,
+)
 from PhenPred.vae.Hypers import Hypers
 from sklearn.model_selection import KFold
 from PhenPred.vae.Train import CLinesTrain
@@ -28,6 +34,8 @@ torch.manual_seed(0)
 np.random.seed(0)
 
 if __name__ == "__main__":
+    ensure_vae_artifact_dirs()
+
 
     val_mse_fold = []
     val_mse_mean_and_dipvae_metric = []
@@ -39,7 +47,9 @@ if __name__ == "__main__":
             if (lambda_d == 0 and lambda_od == 0) or (lambda_d != 0 and lambda_od != 0):
 
                 hyperparameters = Hypers.read_hyperparameters(
-                    hypers_json=f"{plot_folder}/files/optuna_MOSA_updated_model_weights_hyperparameters.json"
+                    hypers_json=config_artifact_path(
+                        "optuna_MOSA_updated_model_weights_hyperparameters.json"
+                    )
                 )
                 hyperparameters["skip_cv"] = False
                 hyperparameters["num_epochs"] = 100
@@ -228,10 +238,7 @@ if __name__ == "__main__":
                 # Write the hyperparameters to json file
                 json.dump(
                     hyperparameters,
-                    open(
-                        f"{plot_folder}/files/{train.timestamp}_hyperparameters.json",
-                        "w",
-                    ),
+                    open(timestamped_hyperparameters_output_path(train.timestamp), "w"),
                     indent=4,
                     default=lambda o: "<not serializable>",
                 )
@@ -239,4 +246,4 @@ if __name__ == "__main__":
 
     rounded_array = np.round(val_mse_mean_and_dipvae_metric, decimals=7)
 
-    np.save(f"{plot_folder}/files/dipvae_metrics.npy", rounded_array)
+    np.save(runtime_artifact_path("dipvae_metrics.npy"), rounded_array)

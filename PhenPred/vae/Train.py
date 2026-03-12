@@ -14,6 +14,12 @@ from torchinfo import summary
 from datetime import datetime
 from PhenPred.vae import plot_folder, shap_folder
 from torch.utils.data import DataLoader
+from PhenPred.vae.ArtifactPaths import (
+    ensure_vae_artifact_dirs,
+    resolve_config_artifact_path,
+    resolve_runtime_artifact_path,
+    runtime_artifact_path,
+)
 from PhenPred.vae.Hypers import Hypers
 from PhenPred.vae.Model import (
     MOSA,
@@ -72,6 +78,8 @@ class CLinesTrain:
             self.timestamp = run_timestamp
             return
 
+        ensure_vae_artifact_dirs()
+
         if not self.hypers["skip_cv"]:
             self.training(drop_last=True, skip_cv_save=return_val_loss)
             if return_val_loss:
@@ -113,17 +121,12 @@ class CLinesTrain:
         return key
 
     @staticmethod
-    def _resolve_optional_path(path):
+    def _resolve_optional_path(path, artifact_type="runtime"):
         if path is None:
             return None
-        if os.path.isabs(path):
-            return path
-        if os.path.isfile(path):
-            return path
-        candidate = os.path.join(plot_folder, "files", path)
-        if os.path.isfile(candidate):
-            return candidate
-        return None
+        if artifact_type == "config":
+            return resolve_config_artifact_path(path)
+        return resolve_runtime_artifact_path(path)
 
     @staticmethod
     def _get_base_model(model):
@@ -183,7 +186,7 @@ class CLinesTrain:
             return
 
         checkpoint_path = self._resolve_optional_path(
-            self.hypers.get("transfer_checkpoint")
+            self.hypers.get("transfer_checkpoint"), artifact_type="runtime"
         )
         if checkpoint_path is None:
             warnings.warn(
@@ -193,7 +196,7 @@ class CLinesTrain:
             return
 
         transfer_hypers_path = self._resolve_optional_path(
-            self.hypers.get("transfer_hypers_json")
+            self.hypers.get("transfer_hypers_json"), artifact_type="config"
         )
         if transfer_hypers_path is None:
             warnings.warn(
@@ -676,7 +679,7 @@ class CLinesTrain:
         if not skip_cv_save:
             for name, df in cvtest_datasets.items():
                 df.round(5).to_csv(
-                    f"{plot_folder}/files/{self.timestamp}_imputed_{name}_cvtest.csv.gz",
+                    runtime_artifact_path(f"{self.timestamp}_imputed_{name}_cvtest.csv.gz"),
                     compression="gzip",
                 )
 
@@ -768,12 +771,12 @@ class CLinesTrain:
                 # Write to file
                 for name, df in imputed_datasets.items():
                     df.round(5).to_csv(
-                        f"{plot_folder}/files/{self.timestamp}_imputed_{name}.csv.gz",
+                        runtime_artifact_path(f"{self.timestamp}_imputed_{name}.csv.gz"),
                         compression="gzip",
                     )
 
                 z.round(5).to_csv(
-                    f"{plot_folder}/files/{self.timestamp}_latent_joint.csv.gz",
+                    runtime_artifact_path(f"{self.timestamp}_latent_joint.csv.gz"),
                     compression="gzip",
                 )
 
@@ -810,7 +813,7 @@ class CLinesTrain:
 
         dfs_imputed = {}
         for n in dfs:
-            df_file = f"{plot_folder}/files/{self.timestamp}_imputed_{n}.csv.gz"
+            df_file = runtime_artifact_path(f"{self.timestamp}_imputed_{n}.csv.gz")
 
             if not os.path.isfile(df_file):
                 continue
@@ -824,7 +827,7 @@ class CLinesTrain:
 
         # Load latent space
         joint_latent = pd.read_csv(
-            f"{plot_folder}/files/{self.timestamp}_latent_joint.csv.gz", index_col=0
+            runtime_artifact_path(f"{self.timestamp}_latent_joint.csv.gz"), index_col=0
         )
 
         return dfs_imputed, joint_latent
@@ -925,23 +928,25 @@ class CLinesTrain:
 
     def save_losses(self):
         l = pd.DataFrame(self.losses)
-        l.to_csv(f"{plot_folder}/files/{self.timestamp}_losses.csv", index=False)
+        ensure_vae_artifact_dirs()
+        l.to_csv(runtime_artifact_path(f"{self.timestamp}_losses.csv"), index=False)
         return l
 
     def load_losses_df(self):
-        return pd.read_csv(f"{plot_folder}/files/{self.timestamp}_losses.csv")
+        return pd.read_csv(runtime_artifact_path(f"{self.timestamp}_losses.csv"))
 
     def save_model(self):
         if self.model is None:
             warnings.warn("No model to save. Run predictions first.")
         else:
+            ensure_vae_artifact_dirs()
             torch.save(
                 self.model.state_dict(),
-                f"{plot_folder}/files/{self.timestamp}_model.pt",
+                runtime_artifact_path(f"{self.timestamp}_model.pt"),
             )
 
     def load_model(self):
-        model_path = f"{plot_folder}/files/{self.timestamp}_model.pt"
+        model_path = runtime_artifact_path(f"{self.timestamp}_model.pt")
 
         if not os.path.isfile(model_path):
             warnings.warn(f"No model to load. {model_path}")
@@ -1407,8 +1412,8 @@ class CLinesTrain:
         is_aggregated_output = is_long_format or ("Sample ID" not in shap_df.columns)
         file_suffix = "_mean_abs" if is_aggregated_output else ""
 
-        out_file = (
-            f"{shap_folder}/files/"
+        ensure_vae_artifact_dirs()
+        out_file = runtime_artifact_path(
             f"{self.timestamp}_shap_values_{explain_target}{file_suffix}.csv.gz"
         )
         shap_df.to_csv(out_file, compression="gzip", index=False)
@@ -1416,6 +1421,7 @@ class CLinesTrain:
         return shap_df
 
     def save_shap_rankings(self, shap_df, explain_target="latent", file_suffix=""):
+        ensure_vae_artifact_dirs()
         if {"omics_feature", "mean_abs_shap"}.issubset(set(shap_df.columns)):
             feature_rank_df = (
                 shap_df.groupby("omics_feature", as_index=False)["mean_abs_shap"]
@@ -1437,8 +1443,7 @@ class CLinesTrain:
             feature_rank_df["omic_layer"] = feature_rank_df["feature"].str.split("_").str[0]
 
         feature_rank_df.to_csv(
-            (
-                f"{shap_folder}/files/"
+            runtime_artifact_path(
                 f"{self.timestamp}_shap_feature_ranking_{explain_target}{file_suffix}.csv"
             ),
             index=False,
@@ -1450,8 +1455,7 @@ class CLinesTrain:
             .sort_values("importance", ascending=False)
         )
         omic_rank_df.to_csv(
-            (
-                f"{shap_folder}/files/"
+            runtime_artifact_path(
                 f"{self.timestamp}_shap_omic_ranking_{explain_target}{file_suffix}.csv"
             ),
             index=False,
@@ -1469,6 +1473,7 @@ class CLinesTrain:
         )
 
     def save_shap_top200_features(self, shap_values, explain_target="latent"):
+        ensure_vae_artifact_dirs()
         if isinstance(shap_values, pd.DataFrame):
             shap_df = shap_values.copy()
         else:
@@ -1544,8 +1549,7 @@ class CLinesTrain:
 
         print("Saving files...")
         shap_top200_df.to_feather(
-            (
-                f"{shap_folder}/files/"
+            runtime_artifact_path(
                 f"{self.timestamp}_shap_values_top_features_{explain_target}{file_suffix}.feather"
             )
         )

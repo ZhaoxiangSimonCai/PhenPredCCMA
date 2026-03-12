@@ -11,6 +11,12 @@ from sklearn.preprocessing import PowerTransformer, StandardScaler
 
 from PhenPred.Utils import scale
 from PhenPred.vae import data_folder
+from PhenPred.vae.ArtifactPaths import (
+    configs_folder,
+    config_history_folder,
+    resolve_existing_path,
+    runtime_files_folder,
+)
 
 
 class CLinesDatasetCCMA(Dataset):
@@ -172,23 +178,20 @@ class CLinesDatasetCCMA(Dataset):
         if path is None:
             return None
 
-        if os.path.isabs(path) and os.path.isfile(path):
-            return path
-
-        candidates = [
-            path,
-            os.path.join(os.getcwd(), path),
-            os.path.join(data_folder, path),
-        ]
-
+        reference_dir = None
         if self.reference_hypers_json is not None:
-            candidates.append(os.path.join(os.path.dirname(self.reference_hypers_json), path))
+            reference_dir = os.path.dirname(self.reference_hypers_json)
 
-        for candidate in candidates:
-            if os.path.isfile(candidate):
-                return candidate
-
-        return None
+        return resolve_existing_path(
+            path,
+            search_dirs=(
+                data_folder,
+                reference_dir,
+                configs_folder,
+                config_history_folder,
+                runtime_files_folder,
+            ),
+        )
 
     def _read_reference_view_features(self, file_path, view_name):
         if view_name in {"crisprcas9", "copynumber"}:

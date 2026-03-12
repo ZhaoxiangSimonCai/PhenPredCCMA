@@ -8,10 +8,17 @@ PY=/home/ubuntu/miniconda3/envs/mosa/bin/python
 mkdir -p docs/ccma_runs/logs
 ```
 
+Config layout note:
+
+- Training command is unchanged: `python -m PhenPred.vae.Main`
+- Default tracked configs live in `reports/vae/configs/`
+- Timestamped saved configs live in `reports/vae/configs/history/`
+- Runtime outputs remain in `reports/vae/files/`
+
 ## 2) Quick sanity checks
 
 ```bash
-test -f reports/vae/files/hyperparameters_ccma_transfer.json && echo "ok: transfer config"
+test -f reports/vae/configs/hyperparameters_ccma_transfer.json && echo "ok: transfer config"
 test -f docs/ccma_runs/hyperparameters_ccma_scratch.json && echo "ok: scratch config"
 test -f models/mosa_pretrained_20231023_092657.pt && echo "ok: pretrained checkpoint"
 test -f /mnt/hackathon-team2-8bf1s/scai/PhenPred/data/clines/ccma_processed/methylation_ccma.csv && echo "ok: CCMA methylation"
@@ -28,7 +35,7 @@ Note:
 LOG="docs/ccma_runs/logs/run_ccma_transfer_$(date +%Y%m%d_%H%M%S).log"
 set -o pipefail
 "$PY" -m PhenPred.vae.Main \
-  --hypers-json reports/vae/files/hyperparameters_ccma_transfer.json \
+  --hypers-json reports/vae/configs/hyperparameters_ccma_transfer.json \
   2>&1 | tee "$LOG"
 echo "exit_code=$? log=$LOG"
 ```
@@ -57,7 +64,7 @@ Optional check:
 
 ```bash
 ls -lh reports/vae/files/${TS}_model.pt
-ls -lh reports/vae/files/${TS}_hyperparameters.json
+ls -lh reports/vae/configs/history/${TS}_hyperparameters.json
 ```
 
 ## 6) Run SHAP (CRISPR target for CCMA)

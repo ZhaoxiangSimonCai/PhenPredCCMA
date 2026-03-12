@@ -1,5 +1,5 @@
 {
-    "dataname": "ccma_scratch",
+    "dataname": "ccma",
     "dataset_class": "ccma",
     "load_run": null,
     "save_model": true,
@@ -8,17 +8,14 @@
     "skip_benchmarks": false,
     "benchmark_mode": "internal",
     "datasets": {
-        "crisprcas9": "ccma_processed/crisprcas9_ccma.csv",
-        "transcriptomics": "ccma_processed/transcriptomics_ccma.csv",
-        "methylation": "/mnt/hackathon-team2-8bf1s/scai/PhenPred/data/clines/ccma_processed/methylation_ccma.csv"
+        "crisprcas9": "/mnt/hackathon-team2-8bf1s/scai/PhenPred/data/clines//ccma_processed/crisprcas9_ccma.csv",
+        "transcriptomics": "/mnt/hackathon-team2-8bf1s/scai/PhenPred/data/clines//ccma_processed/transcriptomics_ccma.csv"
     },
     "view_loss_recon_type": [
-        "mean",
         "mean",
         "mean"
     ],
     "view_loss_weights": [
-        1.0,
         1.0,
         1.0
     ],
@@ -27,11 +24,10 @@
     "labels": [
         "mutations"
     ],
-    "labels_mutations_file": "ccma_processed/mutations_binary_ccma.csv",
+    "labels_mutations_file": "/mnt/hackathon-team2-8bf1s/scai/PhenPred/data/clines//ccma_processed/mutations_binary_ccma.csv",
     "filter_features": [
         "transcriptomics",
-        "crisprcas9",
-        "methylation"
+        "crisprcas9"
     ],
     "filtered_encoder_only": true,
     "batch_norm": false,
@@ -39,7 +35,7 @@
     "feature_miss_rate_thres": 0.85,
     "min_views_per_sample": 2,
     "num_epochs": 200,
-    "learning_rate": 0.00005,
+    "learning_rate": 5e-05,
     "batch_size": 128,
     "n_folds": 3,
     "view_latent_dim": 0.25,
@@ -59,29 +55,25 @@
     "contrastive_pos_margin": 0.85,
     "contrastive_neg_margin": 0.15,
     "optimizer_type": "adam",
-    "reconstruction_loss": "mse",
-    "activation_function": "prelu",
+    "reconstruction_loss": "<not serializable>",
+    "activation_function": "<not serializable>",
     "scheduler": "plateau",
     "scheduler_threshold": 0.0001,
     "scheduler_factor": 0.6,
     "scheduler_patience": 7,
     "scheduler_min_lr": 1e-07,
-    "grad_clip_max_norm": 1.0,
-    "kl_logvar_clip_min": -12.0,
-    "kl_logvar_clip_max": 12.0,
-    "transfer_mode": null,
-    "transfer_checkpoint": null,
-    "transfer_hypers_json": null,
+    "transfer_mode": "shared_views_partial",
+    "transfer_checkpoint": "/mnt/hackathon-team2-8bf1s/scai/PhenPred/models/mosa_pretrained_20231023_092657.pt",
+    "transfer_hypers_json": "/mnt/hackathon-team2-8bf1s/scai/PhenPred/reports/vae/files/20231023_092657_hyperparameters.json",
     "transfer_freeze_epochs": 0,
     "align_to_reference_features": true,
-    "reference_hypers_json": "reports/vae/configs/history/20231023_092657_hyperparameters.json",
+    "reference_hypers_json": "/mnt/hackathon-team2-8bf1s/scai/PhenPred/reports/vae/files/20231023_092657_hyperparameters.json",
     "reference_feature_views": [
         "crisprcas9",
-        "transcriptomics",
-        "methylation"
+        "transcriptomics"
     ],
     "shap_target_view": "crisprcas9",
-    "shap_target_gene_count": -1,
+    "shap_target_gene_count": 50,
     "shap_target_genes_file": null,
     "shap_cross_omic_only": true
 }

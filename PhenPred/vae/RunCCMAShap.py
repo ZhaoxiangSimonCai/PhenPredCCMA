@@ -5,6 +5,7 @@ import torch
 import pandas as pd
 
 from PhenPred.vae import shap_folder
+from PhenPred.vae.ArtifactPaths import runtime_artifact_path
 from PhenPred.vae.Hypers import Hypers
 from PhenPred.vae.Train import CLinesTrain
 from PhenPred.vae.DatasetCCMA import CLinesDatasetCCMA
@@ -77,7 +78,8 @@ def parse_args():
         default=None,
         help=(
             "Optional explicit hyperparameter json path. "
-            "If omitted, uses reports/vae/files/{timestamp}_hyperparameters.json."
+            "If omitted, uses reports/vae/configs/history/{timestamp}_hyperparameters.json "
+            "with fallback to reports/vae/files/{timestamp}_hyperparameters.json."
         ),
     )
     parser.add_argument(
@@ -201,15 +203,14 @@ if __name__ == "__main__":
 
     runtime = time.time() - start_time
     suffix = "_mean_abs"
-    shap_values_path = (
-        f"{shap_folder}/files/{train.timestamp}_shap_values_{explain_target}{suffix}.csv.gz"
+    shap_values_path = runtime_artifact_path(
+        f"{train.timestamp}_shap_values_{explain_target}{suffix}.csv.gz"
     )
-    feature_rank_path = (
-        f"{shap_folder}/files/"
+    feature_rank_path = runtime_artifact_path(
         f"{train.timestamp}_shap_feature_ranking_{explain_target}{suffix}.csv"
     )
-    omic_rank_path = (
-        f"{shap_folder}/files/{train.timestamp}_shap_omic_ranking_{explain_target}{suffix}.csv"
+    omic_rank_path = runtime_artifact_path(
+        f"{train.timestamp}_shap_omic_ranking_{explain_target}{suffix}.csv"
     )
 
     print(f"SHAP explain_target={explain_target}")
@@ -219,8 +220,10 @@ if __name__ == "__main__":
     print(f"Omic ranking: {omic_rank_path}")
     if not args.skip_top200:
         print(
-            f"Top-200 table: {shap_folder}/files/"
-            f"{train.timestamp}_shap_values_top_features_{explain_target}{suffix}.feather"
+            "Top-200 table: "
+            + runtime_artifact_path(
+                f"{train.timestamp}_shap_values_top_features_{explain_target}{suffix}.feather"
+            )
         )
     print(f"Rows in saved SHAP table: {shap_df.shape[0]:,}")
     print(
