@@ -5,11 +5,17 @@ from PhenPred.vae import plot_folder
 runtime_files_folder = os.path.join(plot_folder, "files")
 configs_folder = os.path.join(plot_folder, "configs")
 config_history_folder = os.path.join(configs_folder, "history")
+losses_folder = os.path.join(plot_folder, "losses")
 legacy_config_folder = os.path.join(plot_folder, "file")
 
 
 def ensure_vae_artifact_dirs():
-    for path in (runtime_files_folder, configs_folder, config_history_folder):
+    for path in (
+        runtime_files_folder,
+        configs_folder,
+        config_history_folder,
+        losses_folder,
+    ):
         os.makedirs(path, exist_ok=True)
 
 

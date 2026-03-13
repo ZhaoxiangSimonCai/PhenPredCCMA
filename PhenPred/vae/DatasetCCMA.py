@@ -1,6 +1,7 @@
 import os
 import json
 import warnings
+from copy import deepcopy
 import torch
 import numpy as np
 import pandas as pd
@@ -36,6 +37,7 @@ class CLinesDatasetCCMA(Dataset):
         reference_hypers_json=None,
         reference_feature_views=None,
         labels_mutations_file=None,
+        preprocessing_state=None,
     ):
         super().__init__()
 
@@ -53,6 +55,7 @@ class CLinesDatasetCCMA(Dataset):
         self.reference_hypers_json = reference_hypers_json
         self.reference_feature_views = reference_feature_views
         self.labels_mutations_file = labels_mutations_file
+        self.preprocessing_state = preprocessing_state
         self._external_mutations = None
 
         self.dfs = {n: pd.read_csv(f, index_col=0) for n, f in self.datasets.items()}
@@ -65,17 +68,32 @@ class CLinesDatasetCCMA(Dataset):
             self.dfs["crisprcas9"].columns = (
                 self.dfs["crisprcas9"].columns.astype(str).str.split(" ").str[0]
             )
-            self.dfs["crisprcas9"] = scale(self.dfs["crisprcas9"].T).T
+            crispr_scaled = scale(self.dfs["crisprcas9"].T).T
+            if crispr_scaled.notna().any().any():
+                self.dfs["crisprcas9"] = crispr_scaled
+            else:
+                warnings.warn(
+                    "CRISPR scaling produced all-NaN values; keeping the original CCMA "
+                    "CRISPR matrix for this dataset."
+                )
 
         self._load_external_mutations_labels()
 
-        if self.align_to_reference_features:
-            self._apply_reference_feature_filter()
+        if self.preprocessing_state is None:
+            if self.align_to_reference_features:
+                self._apply_reference_feature_filter()
 
-        self._remove_features_missing_values()
+            self._remove_features_missing_values()
+        else:
+            self._apply_preprocessing_feature_columns()
+
         self._build_samplesheet()
         self._samples_union()
-        self._features_mask()
+
+        if self.preprocessing_state is None:
+            self._features_mask()
+        else:
+            self._apply_preprocessing_feature_masks()
 
         if self.normalize_samples:
             self.dfs = {
@@ -85,7 +103,13 @@ class CLinesDatasetCCMA(Dataset):
 
         self._standardize_dfs()
         self._derive_optional_tables()
-        self._build_labels()
+        self._build_labels(
+            reference_columns=(
+                self.preprocessing_state.get("labels_name")
+                if self.preprocessing_state is not None
+                else None
+            )
+        )
 
         self.x_mask = [
             torch.tensor(self.features_mask[n].values, dtype=torch.bool)
@@ -275,6 +299,72 @@ class CLinesDatasetCCMA(Dataset):
                 f"{old_n:,} -> {self.dfs[view_name].shape[1]:,} features"
             )
 
+    def _apply_preprocessing_feature_columns(self):
+        if self.preprocessing_state is None:
+            return
+
+        view_feature_names = self.preprocessing_state.get("view_feature_names") or {}
+        missing_views = [v for v in self.dfs if v not in view_feature_names]
+        if missing_views:
+            raise ValueError(
+                "preprocessing_state is missing feature columns for views: "
+                f"{missing_views}"
+            )
+
+        for view_name, current_df in self.dfs.items():
+            target_columns = [str(c) for c in view_feature_names[view_name]]
+            old_n = current_df.shape[1]
+            self.dfs[view_name] = current_df.reindex(columns=target_columns)
+            print(
+                f"CCMA preprocessing state | {view_name}: "
+                f"{old_n:,} -> {self.dfs[view_name].shape[1]:,} features"
+            )
+
+    def _apply_preprocessing_feature_masks(self):
+        if self.preprocessing_state is None:
+            return
+
+        state_masks = self.preprocessing_state.get("features_mask") or {}
+        missing_views = [v for v in self.dfs if v not in state_masks]
+        if missing_views:
+            raise ValueError(
+                "preprocessing_state is missing feature masks for views: "
+                f"{missing_views}"
+            )
+
+        self.features_mask = {}
+        for view_name, df in self.dfs.items():
+            mask = state_masks[view_name]
+            mask = mask.copy() if isinstance(mask, pd.Series) else pd.Series(mask)
+            mask.index = mask.index.astype(str)
+            mask = mask.reindex(df.columns)
+
+            if mask.isnull().any():
+                missing_columns = mask.index[mask.isnull()].tolist()
+                raise ValueError(
+                    f"preprocessing_state mask for view '{view_name}' is missing "
+                    f"columns: {missing_columns[:5]}"
+                )
+
+            self.features_mask[view_name] = mask.astype(bool)
+
+    def export_preprocessing_state(self):
+        return {
+            "view_feature_names": {
+                view_name: list(feature_names)
+                for view_name, feature_names in self.view_feature_names.items()
+            },
+            "features_mask": {
+                view_name: feature_mask.copy()
+                for view_name, feature_mask in self.features_mask.items()
+            },
+            "view_scalers": {
+                view_name: deepcopy(scaler)
+                for view_name, scaler in self.view_scalers.items()
+            },
+            "labels_name": list(self.labels_name),
+        }
+
     def _build_samplesheet(self):
         all_ids = sorted(
             set().union(*[set(df.index.astype(str).tolist()) for df in self.dfs.values()])
@@ -335,8 +425,19 @@ class CLinesDatasetCCMA(Dataset):
         self.view_nans = {}
         self.view_names = []
 
+        reference_scalers = {}
+        if self.preprocessing_state is not None:
+            reference_scalers = self.preprocessing_state.get("view_scalers") or {}
+            missing_views = [v for v in self.dfs if v not in reference_scalers]
+            if missing_views:
+                raise ValueError(
+                    "preprocessing_state is missing scalers for views: "
+                    f"{missing_views}"
+                )
+
         for n, df in self.dfs.items():
-            x, scaler, x_nan = self.process_df(n, df)
+            scaler = deepcopy(reference_scalers[n]) if n in reference_scalers else None
+            x, scaler, x_nan = self.process_df(n, df, scaler=scaler)
             self.views[n] = x
             self.view_scalers[n] = scaler
             self.view_nans[n] = x_nan
@@ -365,7 +466,7 @@ class CLinesDatasetCCMA(Dataset):
 
         self.drug_targets = pd.Series(dtype=object)
 
-    def _build_labels(self, min_obs=0):
+    def _build_labels(self, min_obs=0, reference_columns=None):
         labels = []
 
         if "tissue" in self.labels_names:
@@ -412,23 +513,31 @@ class CLinesDatasetCCMA(Dataset):
             self.labels = pd.concat(labels, axis=1)
             self.labels = self.labels.reindex(index=self.samples).fillna(0)
 
+        if reference_columns is not None:
+            reference_columns = self._unique_preserve_order(reference_columns)
+            self.labels = self.labels.reindex(columns=reference_columns, fill_value=0)
+
         self.labels_name = self.labels.columns.tolist()
         self.labels_size = self.labels.shape[1]
         self.labels = torch.tensor(self.labels.values.astype(float), dtype=torch.float)
 
-    def process_df(self, df_name, df):
+    def process_df(self, df_name, df, scaler=None):
         to_standardize = (
             True
             if df_name not in {"copynumber", "mutations"} and self.standardize
             else False
         )
 
-        if self.normalize_features:
-            scaler = PowerTransformer(method="yeo-johnson", standardize=to_standardize)
-        else:
-            scaler = StandardScaler(with_mean=to_standardize, with_std=to_standardize)
+        if scaler is None:
+            if self.normalize_features:
+                scaler = PowerTransformer(method="yeo-johnson", standardize=to_standardize)
+            else:
+                scaler = StandardScaler(with_mean=to_standardize, with_std=to_standardize)
 
-        x = scaler.fit_transform(df).round(self.decimals)
+            x = scaler.fit_transform(df).round(self.decimals)
+        else:
+            x = scaler.transform(df).round(self.decimals)
+
         x_nan = ~np.isnan(x)
 
         if df_name in {"copynumber", "mutations"}:

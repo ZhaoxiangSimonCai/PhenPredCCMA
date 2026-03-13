@@ -54,6 +54,8 @@ class Hypers:
         hypers.setdefault("transfer_freeze_epochs", 0)
         hypers.setdefault("min_views_per_sample", 2)
         hypers.setdefault("labels_mutations_file", None)
+        hypers.setdefault("holdout_datasets", None)
+        hypers.setdefault("holdout_labels_mutations_file", None)
         hypers.setdefault("align_to_reference_features", False)
         hypers.setdefault("reference_hypers_json", None)
         hypers.setdefault("reference_feature_views", None)
@@ -97,12 +99,42 @@ class Hypers:
                 k: (v if os.path.isabs(v) else f"{data_folder}/{v}")
                 for k, v in hypers["datasets"].items()
             }
+            if hypers.get("holdout_datasets") is not None:
+                hypers["holdout_datasets"] = {
+                    k: (v if os.path.isabs(v) else f"{data_folder}/{v}")
+                    for k, v in hypers["holdout_datasets"].items()
+                }
             if hypers.get("labels_mutations_file") is not None and not os.path.isabs(
                 hypers["labels_mutations_file"]
             ):
                 hypers["labels_mutations_file"] = (
                     f"{data_folder}/{hypers['labels_mutations_file']}"
                 )
+            if hypers.get("holdout_labels_mutations_file") is not None and not os.path.isabs(
+                hypers["holdout_labels_mutations_file"]
+            ):
+                hypers["holdout_labels_mutations_file"] = (
+                    f"{data_folder}/{hypers['holdout_labels_mutations_file']}"
+                )
+
+        if hypers.get("holdout_datasets") is not None:
+            holdout_datasets = hypers["holdout_datasets"]
+            if not isinstance(holdout_datasets, dict) or len(holdout_datasets) == 0:
+                raise ValueError(
+                    "Invalid hyperparameters: `holdout_datasets` must be a non-empty dict."
+                )
+
+            dataset_keys = list(hypers["datasets"].keys())
+            holdout_keys = list(holdout_datasets.keys())
+            if set(dataset_keys) != set(holdout_keys):
+                raise ValueError(
+                    "Invalid hyperparameters: `holdout_datasets` must contain the same "
+                    f"views as `datasets`. Got {holdout_keys} vs {dataset_keys}."
+                )
+
+            hypers["holdout_datasets"] = {
+                view_name: holdout_datasets[view_name] for view_name in dataset_keys
+            }
 
         for key in ("transfer_hypers_json", "reference_hypers_json"):
             if hypers.get(key) is not None:

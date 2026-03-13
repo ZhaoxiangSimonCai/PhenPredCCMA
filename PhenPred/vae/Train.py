@@ -73,7 +73,7 @@ class CLinesTrain:
         self._cached_transfer_state = None
         self._cached_transfer_source_views = None
 
-    def run(self, run_timestamp=None, return_val_loss=False):
+    def run(self, run_timestamp=None, return_val_loss=False, test_dataset=None):
         if run_timestamp is not None:
             self.timestamp = run_timestamp
             return
@@ -87,7 +87,7 @@ class CLinesTrain:
             losses_df = self.save_losses()
             self.plot_losses(losses_df)
 
-        self.predictions(drop_last=True)
+        self.predictions(drop_last=True, test_dataset=test_dataset)
 
         if self.hypers["save_model"]:
             self.save_model()
@@ -696,9 +696,7 @@ class CLinesTrain:
         if round(current_lr, 4) < round(self.lrs[-1][1], 4):
             self.lrs.append((epoch, current_lr))
 
-    def predictions(self, n_epochs=None, drop_last=False):
-        imputed_datasets = dict()
-
+    def predictions(self, n_epochs=None, drop_last=False, test_dataset=None):
         n_epochs = self.hypers["num_epochs"] if n_epochs is None else n_epochs
 
         # Data Loader
@@ -717,6 +715,15 @@ class CLinesTrain:
             drop_last=drop_last_pred,
         )
 
+        data_test = None
+        if test_dataset is not None:
+            self._validate_prediction_dataset(test_dataset)
+            data_test = DataLoader(
+                test_dataset,
+                batch_size=self.hypers["batch_size"],
+                shuffle=False,
+            )
+
         self.model = self.initialize_model()
         self.model.to(self.device)
         optimizer = CLinesLosses.get_optimizer(self.model, self.hypers)
@@ -724,17 +731,76 @@ class CLinesTrain:
         for e in range(1, n_epochs + 1):
             self.maybe_unfreeze_transfer_modules(self.model, e)
             self.model.train()
-            print(f"Epoch {e:03}")
             self.epoch(
                 self.model,
                 optimizer,
                 data_all,
+                dict(
+                    cv=0,
+                    epoch=e,
+                    type="train",
+                    lr=optimizer.param_groups[0]["lr"],
+                ),
             )
 
-        # Make predictions and latent spaces
-        data_all = DataLoader(
-            self.data, batch_size=len(self.data.samples), shuffle=False
+            if data_test is not None:
+                self.model.eval()
+                self.epoch(
+                    self.model,
+                    optimizer,
+                    data_test,
+                    dict(
+                        cv=0,
+                        epoch=e,
+                        type="test",
+                        lr=optimizer.param_groups[0]["lr"],
+                    ),
+                )
+
+            self.print_losses(0, e)
+
+        self.predict_dataset(
+            dataset=self.data,
+            split_tag="train",
+            include_legacy_outputs=True,
         )
+
+    def _validate_prediction_dataset(self, dataset):
+        if list(dataset.view_names) != list(self.data.view_names):
+            raise ValueError(
+                "Prediction dataset view order does not match training data. "
+                f"Got {dataset.view_names} vs {self.data.view_names}."
+            )
+
+        for view_name in self.data.view_names:
+            if list(dataset.view_feature_names[view_name]) != list(
+                self.data.view_feature_names[view_name]
+            ):
+                raise ValueError(
+                    f"Prediction dataset feature order for view '{view_name}' does not match "
+                    "training data."
+                )
+
+            if int(dataset.features_mask[view_name].sum()) != int(
+                self.data.features_mask[view_name].sum()
+            ):
+                raise ValueError(
+                    f"Prediction dataset masked feature count for view '{view_name}' does not "
+                    "match training data."
+                )
+
+        if list(dataset.labels_name) != list(self.data.labels_name):
+            raise ValueError(
+                "Prediction dataset label columns do not match training data."
+            )
+
+    def _predict_outputs_for_dataset(self, dataset):
+        if len(dataset.samples) == 0:
+            raise ValueError("Prediction dataset is empty.")
+
+        data_all = DataLoader(dataset, batch_size=len(dataset.samples), shuffle=False)
+        imputed_datasets = {}
+        joint_latent = None
 
         self.model.eval()
         with torch.no_grad():
@@ -753,34 +819,89 @@ class CLinesTrain:
                 x_hat = out_net["x_hat"]
                 z = out_net["z"]
 
-                for name, df in zip(self.data.view_names, x_hat):
+                for name, df in zip(dataset.view_names, x_hat):
                     imputed_datasets[name] = pd.DataFrame(
-                        self.data.view_scalers[name].inverse_transform(
+                        dataset.view_scalers[name].inverse_transform(
                             df.detach().cpu().numpy()
                         ),
-                        index=self.data.samples,
-                        columns=self.data.view_feature_names[name],
+                        index=dataset.samples,
+                        columns=dataset.view_feature_names[name],
                     )
 
                     if name in {"copynumber"}:
                         imputed_datasets[name] = imputed_datasets[name].round()
 
-                z = pd.DataFrame(z.detach().cpu().numpy(), index=self.data.samples)
-                z.columns = [f"Latent_{i+1}" for i in range(z.shape[1])]
+                joint_latent = pd.DataFrame(z.detach().cpu().numpy(), index=dataset.samples)
+                joint_latent.columns = [f"Latent_{i+1}" for i in range(z.shape[1])]
 
-                # Write to file
-                for name, df in imputed_datasets.items():
-                    df.round(5).to_csv(
-                        runtime_artifact_path(f"{self.timestamp}_imputed_{name}.csv.gz"),
-                        compression="gzip",
-                    )
+        return imputed_datasets, joint_latent
 
-                z.round(5).to_csv(
-                    runtime_artifact_path(f"{self.timestamp}_latent_joint.csv.gz"),
+    def _write_prediction_outputs(
+        self,
+        dataset,
+        imputed_datasets,
+        joint_latent,
+        split_tag=None,
+        include_legacy_outputs=False,
+    ):
+        nans_only_datasets = {
+            name: dataset.dfs[name].combine_first(df)
+            for name, df in imputed_datasets.items()
+        }
+
+        for name, df in imputed_datasets.items():
+            if include_legacy_outputs:
+                df.round(5).to_csv(
+                    runtime_artifact_path(f"{self.timestamp}_imputed_{name}.csv.gz"),
                     compression="gzip",
                 )
 
-    def load_vae_reconstructions(self, mode="nans_only", dfs=None):
+            if split_tag is not None:
+                df.round(5).to_csv(
+                    runtime_artifact_path(
+                        f"{self.timestamp}_imputed_{name}_{split_tag}_all.csv.gz"
+                    ),
+                    compression="gzip",
+                )
+                nans_only_datasets[name].round(5).to_csv(
+                    runtime_artifact_path(
+                        f"{self.timestamp}_imputed_{name}_{split_tag}_nans_only.csv.gz"
+                    ),
+                    compression="gzip",
+                )
+
+        if include_legacy_outputs:
+            joint_latent.round(5).to_csv(
+                runtime_artifact_path(f"{self.timestamp}_latent_joint.csv.gz"),
+                compression="gzip",
+            )
+
+        if split_tag is not None:
+            joint_latent.round(5).to_csv(
+                runtime_artifact_path(f"{self.timestamp}_latent_joint_{split_tag}.csv.gz"),
+                compression="gzip",
+            )
+
+        return nans_only_datasets
+
+    def predict_dataset(self, dataset=None, split_tag=None, include_legacy_outputs=False):
+        dataset = self.data if dataset is None else dataset
+
+        if self.model is None:
+            self.load_model()
+
+        self._validate_prediction_dataset(dataset)
+        imputed_datasets, joint_latent = self._predict_outputs_for_dataset(dataset)
+        nans_only_datasets = self._write_prediction_outputs(
+            dataset,
+            imputed_datasets,
+            joint_latent,
+            split_tag=split_tag,
+            include_legacy_outputs=include_legacy_outputs,
+        )
+        return imputed_datasets, nans_only_datasets, joint_latent
+
+    def load_vae_reconstructions(self, mode="nans_only", dfs=None, split_tag=None):
         """
         Load imputed data and latent space from files. "nans_only" mode, original
         measurements are mantained and only NaNs are imputed. "all" mode all
@@ -813,21 +934,45 @@ class CLinesTrain:
 
         dfs_imputed = {}
         for n in dfs:
-            df_file = runtime_artifact_path(f"{self.timestamp}_imputed_{n}.csv.gz")
+            if split_tag is None:
+                df_file = runtime_artifact_path(f"{self.timestamp}_imputed_{n}.csv.gz")
 
-            if not os.path.isfile(df_file):
-                continue
+                if not os.path.isfile(df_file):
+                    continue
 
-            df_imputed = pd.read_csv(df_file, index_col=0)
+                df_imputed = pd.read_csv(df_file, index_col=0)
 
-            if mode == "nans_only":
-                df_imputed = self.data.dfs[n].combine_first(df_imputed)
+                if mode == "nans_only":
+                    df_imputed = self.data.dfs[n].combine_first(df_imputed)
+            else:
+                if mode == "all":
+                    df_file = runtime_artifact_path(
+                        f"{self.timestamp}_imputed_{n}_{split_tag}_all.csv.gz"
+                    )
+                    if not os.path.isfile(df_file):
+                        continue
+                    df_imputed = pd.read_csv(df_file, index_col=0)
+                else:
+                    df_file = runtime_artifact_path(
+                        f"{self.timestamp}_imputed_{n}_{split_tag}_nans_only.csv.gz"
+                    )
+                    if os.path.isfile(df_file):
+                        df_imputed = pd.read_csv(df_file, index_col=0)
+                    else:
+                        all_file = runtime_artifact_path(
+                            f"{self.timestamp}_imputed_{n}_{split_tag}_all.csv.gz"
+                        )
+                        if not os.path.isfile(all_file):
+                            continue
+                        df_imputed = pd.read_csv(all_file, index_col=0)
+                        df_imputed = dfs[n].combine_first(df_imputed)
 
             dfs_imputed[n] = df_imputed
 
-        # Load latent space
+        latent_suffix = f"_{split_tag}" if split_tag is not None else ""
         joint_latent = pd.read_csv(
-            runtime_artifact_path(f"{self.timestamp}_latent_joint.csv.gz"), index_col=0
+            runtime_artifact_path(f"{self.timestamp}_latent_joint{latent_suffix}.csv.gz"),
+            index_col=0,
         )
 
         return dfs_imputed, joint_latent
@@ -884,34 +1029,56 @@ class CLinesTrain:
         l = self.get_losses(cv_idx, epoch_idx, groupby="type")
 
         if l.empty:
-            ptxt = (
-                f"[{datetime.now().strftime('%H:%M:%S')}] CV={cv_idx:02}, "
-                f"Epoch={epoch_idx:03} Loss unavailable"
-            )
+            if cv_idx > 0:
+                ptxt = (
+                    f"[{datetime.now().strftime('%H:%M:%S')}] CV={cv_idx:02}, "
+                    f"Epoch={epoch_idx:03} Loss unavailable"
+                )
+            else:
+                ptxt = (
+                    f"[{datetime.now().strftime('%H:%M:%S')}] Full-data, "
+                    f"Epoch={epoch_idx:03} Loss unavailable"
+                )
             if pbar is not None:
                 pbar.set_description(ptxt)
             else:
                 print(ptxt)
             return
 
-        def _fmt_train_val(df, col):
-            train_v = np.nan
-            val_v = np.nan
-            if "train" in df.index and col in df.columns:
-                train_v = df.loc["train", col]
-            if "val" in df.index and col in df.columns:
-                val_v = df.loc["val", col]
-            return f"{train_v:.2f}/{val_v:.2f}"
+        split_order = ["train", "val", "test"]
+        split_types = [split for split in split_order if split in l.index]
+        split_types += [split for split in l.index if split not in split_types]
 
-        ptxt = f"[{datetime.now().strftime('%H:%M:%S')}] CV={cv_idx:02}, Epoch={epoch_idx:03} Loss (train/val)"
-        ptxt += f" | Total={_fmt_train_val(l, 'total')}"
+        def _fmt_split_values(df, col):
+            values = []
+            for split in split_types:
+                value = np.nan
+                if split in df.index and col in df.columns:
+                    value = df.loc[split, col]
+                values.append(f"{value:.2f}")
+            return "/".join(values)
+
+        split_label = "/".join(split_types)
+
+        if cv_idx > 0:
+            ptxt = (
+                f"[{datetime.now().strftime('%H:%M:%S')}] CV={cv_idx:02}, "
+                f"Epoch={epoch_idx:03} Loss ({split_label})"
+            )
+        else:
+            ptxt = (
+                f"[{datetime.now().strftime('%H:%M:%S')}] Full-data, "
+                f"Epoch={epoch_idx:03} Loss ({split_label})"
+            )
+
+        ptxt += f" | Total={_fmt_split_values(l, 'total')}"
 
         for k in l.columns:
             if k not in ["cv", "epoch", "type", "total", "lr"] and "_" not in k:
-                ptxt += f" | {k}={_fmt_train_val(l, k)}"
+                ptxt += f" | {k}={_fmt_split_values(l, k)}"
 
         if self.verbose > 1:
-            ptxt += f"\n[Benchmark scores (train/val)] "
+            ptxt += f"\n[Benchmark scores ({split_label})] "
 
             bench_df = self.get_benchmark(
                 cv_idx, epoch_idx, groupby=["benchmark", "type"]
@@ -919,7 +1086,7 @@ class CLinesTrain:
 
             for b_name, b_df in bench_df.groupby("benchmark"):
                 b_df = b_df.set_index("type")
-                ptxt += f"{b_name}: {_fmt_train_val(b_df, 'score')} | "
+                ptxt += f"{b_name}: {_fmt_split_values(b_df, 'score')} | "
 
         if pbar is not None:
             pbar.set_description(ptxt)

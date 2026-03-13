@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # Copyright (C) 2022 Emanuel Goncalves
 
+import os
+
 import matplotlib.pyplot as plt
 
 # Matplotlib config
@@ -123,6 +125,10 @@ OMIC_NAMES = dict(
 
 
 def save_figure(path, extensions=["png", "pdf"], dpi=300, transparent=False, **kwargs):
+    output_dir = os.path.dirname(path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+
     for e in extensions:
         plt.savefig(
             path + "." + e,

@@ -39,9 +39,14 @@ torch.manual_seed(0)
 np.random.seed(0)
 
 
-def build_dataset(hyperparameters):
+def build_dataset(
+    hyperparameters,
+    datasets_key="datasets",
+    labels_mutations_key="labels_mutations_file",
+    preprocessing_state=None,
+):
     dataset_kwargs = dict(
-        datasets=hyperparameters["datasets"],
+        datasets=hyperparameters[datasets_key],
         labels_names=hyperparameters["labels"],
         standardize=hyperparameters["standardize"],
         filter_features=hyperparameters["filter_features"],
@@ -71,8 +76,9 @@ def build_dataset(hyperparameters):
             "reference_feature_views"
         )
         dataset_kwargs["labels_mutations_file"] = hyperparameters.get(
-            "labels_mutations_file"
+            labels_mutations_key
         )
+        dataset_kwargs["preprocessing_state"] = preprocessing_state
         return CLinesDatasetCCMA(**dataset_kwargs)
 
     raise ValueError(f"Unsupported dataset_class='{dataset_class}'")
@@ -165,7 +171,27 @@ if __name__ == "__main__":
         verbose=hyperparameters["verbose"],
         stratify_cv_by=safe_stratify_by_tissue(clines_db, hyperparameters),
     )
-    train.run()
+
+    holdout_db = None
+    if hyperparameters.get("holdout_datasets") is not None:
+        dataset_class = str(hyperparameters.get("dataset_class", "")).lower()
+        if dataset_class != "ccma":
+            raise ValueError(
+                "holdout_datasets are currently supported only for dataset_class='ccma'."
+            )
+
+        print("Building held-out CCMA dataset with train preprocessing state.")
+        holdout_db = build_dataset(
+            hyperparameters,
+            datasets_key="holdout_datasets",
+            labels_mutations_key="holdout_labels_mutations_file",
+            preprocessing_state=clines_db.export_preprocessing_state(),
+        )
+
+    train.run(test_dataset=holdout_db)
+
+    if holdout_db is not None:
+        train.predict_dataset(holdout_db, split_tag="test")
 
     benchmark_mode = str(hyperparameters.get("benchmark_mode", "full")).lower()
     skip_benchmarks = bool(hyperparameters.get("skip_benchmarks", False))
