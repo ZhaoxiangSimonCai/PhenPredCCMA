@@ -9,35 +9,33 @@ from pathlib import Path
 from typing import Dict, List
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
+ROOT = SCRIPT_DIR.parent
+TABPFN_DIR = ROOT / "tabpfn"
+for path_str in [str(SCRIPT_DIR), str(TABPFN_DIR)]:
+    if path_str not in sys.path:
+        sys.path.insert(0, path_str)
 
-from experiment_core import (
+from experiment_core import (  # type: ignore  # noqa: E402
     PREDICTOR_BLOCKS,
     RAW_VIEW_FILE_STEMS,
-    ROOT,
     PreparedRunData,
     apply_target_limit,
     build_prepared_run_data,
     concat_blocks,
-    default_model_path,
     ensure_dir,
-    fit_predict_per_target,
     fit_preprocessor,
     load_mosa_target_names,
     maybe_log,
-    model_path_count,
-    model_path_display_name,
-    normalize_model_path_arg,
     ordered_intersection,
     read_mosa_view_matrix,
     read_raw_view_matrix,
-    resolve_device_spec,
     save_split_indices,
     write_selected_feature_artifacts,
     write_test_outputs,
 )
-from feature_selection import fit_feature_selector
+from feature_selection import fit_feature_selector  # type: ignore  # noqa: E402
+from model_core import fit_predict_per_target_rf  # noqa: E402
+import pandas as pd
 
 
 EXPERIMENT_NAME = "feature_augmentation"
@@ -58,97 +56,40 @@ class RunConfig:
     target_limit: int
     max_features: int
     min_features_per_modality: int
-    device: str
-    gpu_id: int
-    tabpfn_n_estimators: int
-    tabpfn_estimator_mode: str
-    tabpfn_fit_mode: str
-    tabpfn_inference_precision: str
-    tabpfn_ignore_pretraining_limits: bool
-    tabpfn_model_path: str | List[str]
-    tabpfn_n_preprocessing_jobs: int
-    tabpfn_finetune_epochs: int
-    tabpfn_finetune_time_limit: int
-    tabpfn_finetune_learning_rate: float
-    tabpfn_finetune_validation_split_ratio: float
-    tabpfn_finetune_early_stopping_patience: int
-    tabpfn_finetune_n_estimators: int
-    tabpfn_finetune_n_estimators_validation: int
-    tabpfn_finetune_n_estimators_final_inference: int
+    rf_n_estimators: int
+    rf_max_depth: int
+    rf_min_samples_leaf: int
+    rf_max_features: str
+    rf_n_jobs: int
     log_every_targets: int
     quiet: bool
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run TabPFN feature-augmentation comparisons for original and MOSA feature variants."
+        description="Run random-forest feature-augmentation comparisons for original and MOSA feature variants."
     )
     parser.add_argument("--ccma-dir", type=str, default="data/clines/ccma_processed")
     parser.add_argument("--mosa-files-dir", type=str, default="reports/vae/files")
     parser.add_argument(
         "--out-dir",
         type=str,
-        default="reports/tabpfn/feature_augmentation",
+        default="reports/random_forest/feature_augmentation",
         help="Per-run outputs are written under <out-dir>/<timestamp>/<family>/<frame>/<variant>/",
     )
     parser.add_argument("--mosa-timestamp", type=str, default="20260313_162348")
-    parser.add_argument(
-        "--target-family",
-        type=str,
-        required=True,
-        choices=["crisprcas9", "drugresponse"],
-    )
-    parser.add_argument(
-        "--sample-frame",
-        type=str,
-        default="both",
-        choices=["overlap", "expanded", "both"],
-    )
-    parser.add_argument(
-        "--variant",
-        type=str,
-        default="all",
-        choices=["original", "mosa_nan_only", "mosa_all", "all"],
-    )
+    parser.add_argument("--target-family", type=str, required=True, choices=["crisprcas9", "drugresponse"])
+    parser.add_argument("--sample-frame", type=str, default="both", choices=["overlap", "expanded", "both"])
+    parser.add_argument("--variant", type=str, default="all", choices=["original", "mosa_nan_only", "mosa_all", "all"])
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--target-limit", type=int, default=0, help="0 means use all targets.")
     parser.add_argument("--max-features", type=int, default=2000)
     parser.add_argument("--min-features-per-modality", type=int, default=100)
-    parser.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda"])
-    parser.add_argument("--gpu-id", type=int, default=0)
-    parser.add_argument("--tabpfn-n-estimators", type=int, default=8)
-    parser.add_argument(
-        "--tabpfn-estimator-mode",
-        type=str,
-        default="standard",
-        choices=["standard", "finetune"],
-        help="Use the standard TabPFNRegressor or the separate FinetunedTabPFNRegressor.",
-    )
-    parser.add_argument(
-        "--tabpfn-fit-mode",
-        type=str,
-        default="fit_preprocessors",
-        choices=["low_memory", "fit_preprocessors", "fit_with_cache", "batched"],
-        help="Inference fit mode for standard TabPFN runs. Ignored in finetune mode.",
-    )
-    parser.add_argument("--tabpfn-inference-precision", type=str, default="auto")
-    parser.add_argument(
-        "--tabpfn-model-path",
-        type=str,
-        nargs="+",
-        default=[default_model_path()],
-        help="One or more TabPFN regressor checkpoints. Multiple values are passed through as a checkpoint ensemble.",
-    )
-    parser.add_argument("--tabpfn-ignore-pretraining-limits", action="store_true")
-    parser.add_argument("--tabpfn-n-preprocessing-jobs", type=int, default=1)
-    parser.add_argument("--tabpfn-finetune-epochs", type=int, default=30)
-    parser.add_argument("--tabpfn-finetune-time-limit", type=int, default=0, help="0 disables the finetune time limit.")
-    parser.add_argument("--tabpfn-finetune-learning-rate", type=float, default=1e-5)
-    parser.add_argument("--tabpfn-finetune-validation-split-ratio", type=float, default=0.1)
-    parser.add_argument("--tabpfn-finetune-early-stopping-patience", type=int, default=8)
-    parser.add_argument("--tabpfn-finetune-n-estimators", type=int, default=2)
-    parser.add_argument("--tabpfn-finetune-n-estimators-validation", type=int, default=2)
-    parser.add_argument("--tabpfn-finetune-n-estimators-final-inference", type=int, default=8)
+    parser.add_argument("--rf-n-estimators", type=int, default=300)
+    parser.add_argument("--rf-max-depth", type=int, default=0, help="0 means no max depth limit.")
+    parser.add_argument("--rf-min-samples-leaf", type=int, default=1)
+    parser.add_argument("--rf-max-features", type=str, default="sqrt")
+    parser.add_argument("--rf-n-jobs", type=int, default=-1)
     parser.add_argument("--log-every-targets", type=int, default=100)
     parser.add_argument("--quiet", action="store_true")
     return parser.parse_args()
@@ -167,23 +108,11 @@ def args_to_config(args: argparse.Namespace) -> RunConfig:
         target_limit=int(args.target_limit),
         max_features=int(args.max_features),
         min_features_per_modality=int(args.min_features_per_modality),
-        device=str(args.device),
-        gpu_id=int(args.gpu_id),
-        tabpfn_n_estimators=int(args.tabpfn_n_estimators),
-        tabpfn_estimator_mode=str(args.tabpfn_estimator_mode),
-        tabpfn_fit_mode=str(args.tabpfn_fit_mode),
-        tabpfn_inference_precision=str(args.tabpfn_inference_precision),
-        tabpfn_ignore_pretraining_limits=bool(args.tabpfn_ignore_pretraining_limits),
-        tabpfn_model_path=normalize_model_path_arg(args.tabpfn_model_path),
-        tabpfn_n_preprocessing_jobs=int(args.tabpfn_n_preprocessing_jobs),
-        tabpfn_finetune_epochs=int(args.tabpfn_finetune_epochs),
-        tabpfn_finetune_time_limit=int(args.tabpfn_finetune_time_limit),
-        tabpfn_finetune_learning_rate=float(args.tabpfn_finetune_learning_rate),
-        tabpfn_finetune_validation_split_ratio=float(args.tabpfn_finetune_validation_split_ratio),
-        tabpfn_finetune_early_stopping_patience=int(args.tabpfn_finetune_early_stopping_patience),
-        tabpfn_finetune_n_estimators=int(args.tabpfn_finetune_n_estimators),
-        tabpfn_finetune_n_estimators_validation=int(args.tabpfn_finetune_n_estimators_validation),
-        tabpfn_finetune_n_estimators_final_inference=int(args.tabpfn_finetune_n_estimators_final_inference),
+        rf_n_estimators=int(args.rf_n_estimators),
+        rf_max_depth=int(args.rf_max_depth),
+        rf_min_samples_leaf=int(args.rf_min_samples_leaf),
+        rf_max_features=str(args.rf_max_features),
+        rf_n_jobs=int(args.rf_n_jobs),
         log_every_targets=max(1, int(args.log_every_targets)),
         quiet=bool(args.quiet),
     )
@@ -201,12 +130,7 @@ def expand_variants(raw: str) -> List[str]:
     return [raw]
 
 
-def load_target_labels(
-    ccma_dir: Path,
-    target_family: str,
-    sample_frame: str,
-    split: str,
-):
+def load_target_labels(ccma_dir: Path, target_family: str, sample_frame: str, split: str):
     frame_token = "overlap" if sample_frame == "overlap" else "mosa"
     path = ccma_dir / f"{target_family}_ccma_{frame_token}_{split}.csv"
     df = read_raw_view_matrix(path, target_family)
@@ -234,12 +158,7 @@ def load_predictor_view(
     return read_mosa_view_matrix(path), path
 
 
-def build_run_data(
-    cfg: RunConfig,
-    target_family: str,
-    sample_frame: str,
-    variant: str,
-) -> PreparedRunData:
+def build_run_data(cfg: RunConfig, target_family: str, sample_frame: str, variant: str) -> PreparedRunData:
     ccma_dir = (ROOT / cfg.ccma_dir).resolve()
     mosa_dir = (ROOT / cfg.mosa_files_dir).resolve()
 
@@ -249,11 +168,7 @@ def build_run_data(
 
     y_train_df, y_train_path = load_target_labels(ccma_dir, target_family, sample_frame, "train")
     y_test_df, y_test_path = load_target_labels(ccma_dir, target_family, sample_frame, "test")
-    mosa_target_names, mosa_target_path = load_mosa_target_names(
-        mosa_dir,
-        cfg.mosa_timestamp,
-        target_family,
-    )
+    mosa_target_names, mosa_target_path = load_mosa_target_names(mosa_dir, cfg.mosa_timestamp, target_family)
 
     missing_train_targets = [name for name in mosa_target_names if name not in y_train_df.columns]
     missing_test_targets = [name for name in mosa_target_names if name not in y_test_df.columns]
@@ -268,8 +183,8 @@ def build_run_data(
     y_train_df = apply_target_limit(y_train_df, cfg.target_limit)
     y_test_df = y_test_df.loc[:, y_train_df.columns].copy()
 
-    feature_train_df: Dict[str, object] = {}
-    feature_test_df: Dict[str, object] = {}
+    feature_train_df: Dict[str, pd.DataFrame] = {}
+    feature_test_df: Dict[str, pd.DataFrame] = {}
     source_paths: Dict[str, str] = {
         "target_train": str(y_train_path),
         "target_test": str(y_test_path),
@@ -336,11 +251,7 @@ def build_run_data(
     elif len(test_sample_ids) != 24:
         raise AssertionError(f"Expected expanded frame test size 24, got {len(test_sample_ids)}.")
 
-    metadata = {
-        "experiment_name": EXPERIMENT_NAME,
-        "sample_frame": sample_frame,
-        "variant": variant,
-    }
+    metadata = {"experiment_name": EXPERIMENT_NAME, "sample_frame": sample_frame, "variant": variant}
     return build_prepared_run_data(
         target_family=target_family,
         variant=variant,
@@ -356,21 +267,9 @@ def build_run_data(
     )
 
 
-def run_single_experiment(
-    cfg: RunConfig,
-    target_family: str,
-    sample_frame: str,
-    variant: str,
-    device_spec: str,
-) -> Path:
+def run_single_experiment(cfg: RunConfig, target_family: str, sample_frame: str, variant: str) -> Path:
     prepared = build_run_data(cfg, target_family, sample_frame, variant)
-    out_dir = (
-        (ROOT / cfg.out_dir).resolve()
-        / cfg.mosa_timestamp
-        / target_family
-        / sample_frame
-        / variant
-    )
+    out_dir = (ROOT / cfg.out_dir).resolve() / cfg.mosa_timestamp / target_family / sample_frame / variant
     ensure_dir(out_dir)
 
     maybe_log(
@@ -397,11 +296,10 @@ def run_single_experiment(
     maybe_log(
         cfg,
         f"[final][{target_family}/{sample_frame}/{variant}] "
-        f"train_n={x_train.shape[0]} test_n={x_test.shape[0]} "
-        f"selected_features={selector.total_selected}",
+        f"train_n={x_train.shape[0]} test_n={x_test.shape[0]} selected_features={selector.total_selected}",
     )
 
-    pred_test, fit_diag = fit_predict_per_target(
+    pred_test, fit_rows = fit_predict_per_target_rf(
         cfg,
         label=f"final_{target_family}_{sample_frame}_{variant}",
         target_names=prepared.target_names,
@@ -409,10 +307,9 @@ def run_single_experiment(
         train_y=prepared.y_train,
         train_mask=prepared.y_train_mask,
         eval_x=x_test,
-        device_spec=device_spec,
-        base_seed=cfg.seed + 30_000,
+        log_fn=lambda text: maybe_log(cfg, text),
     )
-    fit_diag.to_csv(out_dir / "target_fit_diagnostics.csv", index=False)
+    pd.DataFrame(fit_rows).to_csv(out_dir / "target_fit_diagnostics.csv", index=False)
 
     summary_payload, _ = write_test_outputs(
         out_dir,
@@ -420,13 +317,11 @@ def run_single_experiment(
         pred_test,
         summary_metadata={
             "experiment_name": EXPERIMENT_NAME,
+            "model_name": "random_forest",
             "target_family": target_family,
             "sample_frame": sample_frame,
             "variant": variant,
             "mosa_timestamp": cfg.mosa_timestamp,
-            "tabpfn_estimator_mode": cfg.tabpfn_estimator_mode,
-            "tabpfn_model_label": model_path_display_name(cfg.tabpfn_model_path),
-            "tabpfn_model_count": model_path_count(cfg.tabpfn_model_path),
             "train_n": int(prepared.y_train.shape[0]),
             "test_n": int(prepared.y_test.shape[0]),
             "target_count": int(prepared.y_train.shape[1]),
@@ -438,6 +333,7 @@ def run_single_experiment(
     config_payload.update(
         {
             "experiment_name": EXPERIMENT_NAME,
+            "model_name": "random_forest",
             "resolved_ccma_dir": str((ROOT / cfg.ccma_dir).resolve()),
             "resolved_mosa_files_dir": str((ROOT / cfg.mosa_files_dir).resolve()),
             "resolved_out_dir": str(out_dir.resolve()),
@@ -465,32 +361,15 @@ def run_single_experiment(
 def main() -> None:
     args = parse_args()
     cfg = args_to_config(args)
-    device_spec = resolve_device_spec(cfg.device, cfg.gpu_id)
-
     sample_frames = expand_sample_frames(cfg.sample_frame)
     variants = expand_variants(cfg.variant)
-    if cfg.tabpfn_estimator_mode == "finetune":
-        maybe_log(
-            cfg,
-            "[setup] finetune mode selected; --tabpfn-fit-mode is ignored because the separate "
-            "FinetunedTabPFNRegressor manages its own training loop.",
-        )
     maybe_log(
         cfg,
-        f"[setup] device={device_spec} target_family={cfg.target_family} "
-        f"estimator={cfg.tabpfn_estimator_mode} model={model_path_display_name(cfg.tabpfn_model_path)} "
-        f"sample_frames={sample_frames} variants={variants}",
+        f"[setup] target_family={cfg.target_family} sample_frames={sample_frames} variants={variants}",
     )
-
     for sample_frame in sample_frames:
         for variant in variants:
-            run_single_experiment(
-                cfg=cfg,
-                target_family=cfg.target_family,
-                sample_frame=sample_frame,
-                variant=variant,
-                device_spec=device_spec,
-            )
+            run_single_experiment(cfg=cfg, target_family=cfg.target_family, sample_frame=sample_frame, variant=variant)
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ import pandas as pd
 import torch
 
 
-def import_installed_tabpfn_regressor():
+def import_installed_tabpfn_regressors():
     excluded = {SCRIPT_DIR.resolve(), ROOT.resolve()}
     original_sys_path = list(sys.path)
     try:
@@ -28,12 +28,13 @@ def import_installed_tabpfn_regressor():
             if Path(entry or ".").resolve() not in excluded
         ]
         from tabpfn import TabPFNRegressor as installed_regressor
+        from tabpfn.finetuning import FinetunedTabPFNRegressor as installed_finetuned_regressor
     finally:
         sys.path = original_sys_path
-    return installed_regressor
+    return installed_regressor, installed_finetuned_regressor
 
 
-TabPFNRegressor = import_installed_tabpfn_regressor()
+TabPFNRegressor, FinetunedTabPFNRegressor = import_installed_tabpfn_regressors()
 
 RAW_VIEW_FILE_STEMS = {
     "transcriptomics": "transcriptomics",
@@ -98,6 +99,33 @@ def default_model_path() -> str:
         "/home/scai/scratch/PredCRISPRCCMA/tabpfn/models/tabpfn-v2.5-regressor-v2.5_default.ckpt"
     )
     return str(reference_model) if reference_model.exists() else "auto"
+
+
+def normalize_model_path_arg(raw_value: Any) -> str | List[str]:
+    if isinstance(raw_value, (list, tuple)):
+        values = list(raw_value)
+    else:
+        values = [raw_value]
+
+    normalized: List[str] = []
+    for value in values:
+        if value is None:
+            continue
+        parts = [part.strip() for part in str(value).split(",") if part.strip()]
+        normalized.extend(parts)
+
+    if not normalized:
+        return default_model_path()
+    return normalized[0] if len(normalized) == 1 else normalized
+
+
+def model_path_display_name(model_path: Any) -> str:
+    paths = model_path if isinstance(model_path, list) else [model_path]
+    return ",".join(Path(str(path)).name for path in paths)
+
+
+def model_path_count(model_path: Any) -> int:
+    return len(model_path) if isinstance(model_path, list) else 1
 
 
 def ensure_dir(path: Path) -> None:
@@ -449,16 +477,53 @@ def write_test_outputs(
     return summary_payload, per_target_df
 
 
-def make_tabpfn_regressor(cfg: Any, seed: int, device_spec: str) -> TabPFNRegressor:
+def make_tabpfn_regressor(cfg: Any, seed: int, device_spec: str) -> Any:
+    model_path = normalize_model_path_arg(getattr(cfg, "tabpfn_model_path", default_model_path()))
+
+    if getattr(cfg, "tabpfn_estimator_mode", "standard") == "finetune":
+        time_limit = int(getattr(cfg, "tabpfn_finetune_time_limit", 0))
+        extra_regressor_kwargs = {
+            "n_estimators": int(getattr(cfg, "tabpfn_n_estimators", 8)),
+            "model_path": model_path,
+            "device": device_spec,
+            "ignore_pretraining_limits": bool(
+                getattr(cfg, "tabpfn_ignore_pretraining_limits", False)
+            ),
+            "inference_precision": getattr(cfg, "tabpfn_inference_precision", "auto"),
+            "n_preprocessing_jobs": int(getattr(cfg, "tabpfn_n_preprocessing_jobs", 1)),
+        }
+        return FinetunedTabPFNRegressor(
+            device=device_spec,
+            epochs=int(getattr(cfg, "tabpfn_finetune_epochs", 30)),
+            time_limit=time_limit if time_limit > 0 else None,
+            learning_rate=float(getattr(cfg, "tabpfn_finetune_learning_rate", 1e-5)),
+            validation_split_ratio=float(
+                getattr(cfg, "tabpfn_finetune_validation_split_ratio", 0.1)
+            ),
+            early_stopping_patience=int(
+                getattr(cfg, "tabpfn_finetune_early_stopping_patience", 8)
+            ),
+            n_estimators_finetune=int(getattr(cfg, "tabpfn_finetune_n_estimators", 2)),
+            n_estimators_validation=int(
+                getattr(cfg, "tabpfn_finetune_n_estimators_validation", 2)
+            ),
+            n_estimators_final_inference=int(
+                getattr(cfg, "tabpfn_finetune_n_estimators_final_inference", 8)
+            ),
+            random_state=seed,
+            save_checkpoint_interval=None,
+            extra_regressor_kwargs=extra_regressor_kwargs,
+        )
+
     return TabPFNRegressor(
-        n_estimators=cfg.tabpfn_n_estimators,
-        model_path=cfg.tabpfn_model_path,
+        n_estimators=int(getattr(cfg, "tabpfn_n_estimators", 8)),
+        model_path=model_path,
         device=device_spec,
-        ignore_pretraining_limits=cfg.tabpfn_ignore_pretraining_limits,
-        inference_precision=cfg.tabpfn_inference_precision,
-        fit_mode=cfg.tabpfn_fit_mode,
+        ignore_pretraining_limits=bool(getattr(cfg, "tabpfn_ignore_pretraining_limits", False)),
+        inference_precision=getattr(cfg, "tabpfn_inference_precision", "auto"),
+        fit_mode=getattr(cfg, "tabpfn_fit_mode", "fit_preprocessors"),
         random_state=seed,
-        n_preprocessing_jobs=cfg.tabpfn_n_preprocessing_jobs,
+        n_preprocessing_jobs=int(getattr(cfg, "tabpfn_n_preprocessing_jobs", 1)),
     )
 
 
