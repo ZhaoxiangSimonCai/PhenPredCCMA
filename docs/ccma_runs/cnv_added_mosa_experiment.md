@@ -29,13 +29,15 @@ The preprocessing now lives in `notebooks/preprocess_CCMA.ipynb` under **Copy nu
 
 Encoding used:
 
-| `cnvkit__copy_no` | MOSA `copynumber` state |
-| ---: | ---: |
-| 0 | -2 |
-| 1 | -1 |
-| 2 or missing event | 0 |
-| 3 | 1 |
-| >=4 | 2 |
+
+| `cnvkit__copy_no`  | MOSA `copynumber` state |
+| ------------------ | ----------------------- |
+| 0                  | -2                      |
+| 1                  | -1                      |
+| 2 or missing event | 0                       |
+| 3                  | 1                       |
+| >=4                | 2                       |
+
 
 ## 1) Preprocess CNV
 
@@ -131,6 +133,8 @@ done
 Random forest baseline:
 
 ```bash
+test -n "${TS:-}" || { echo "Set TS to the CNV MOSA timestamp first"; exit 1; }
+
 for FAMILY in crisprcas9 drugresponse; do
   "$PY" random_forest/run_feature_augmentation.py \
     --target-family "$FAMILY" \
@@ -170,6 +174,8 @@ Aggregate and compare:
   --out-dir "$MODEL_COMPARE_REPORTS"
 ```
 
+Note: `tabpfn/plot_experiment_comparison.py` is the shared aggregation plotter for both TabPFN and random forest report layouts. If it errors with `No test_metrics_summary.json files found`, the corresponding training loop has not produced metrics for that exact `TS`; rerun that loop with the same CNV MOSA timestamp.
+
 Expected final comparison artifact:
 
 ```bash
@@ -179,11 +185,20 @@ reports/model_comparison_cnv_mosa_only/feature_augmentation/${TS}/aggregate_mode
 
 ## 5) Tracking Results
 
-After the run, add a row here.
+The +CNV run is now selected as the current project version. The selected downstream setting remains standard TabPFN `feature_augmentation`, `expanded/mosa_all`.
+
 
 | Date | MOSA timestamp | Downstream output root | Drug Response selected r | CRISPR selected r | Notes |
 | --- | --- | --- | ---: | ---: | --- |
-| 2026-05-05 | TBD | `reports/model_comparison_cnv_mosa_only/feature_augmentation/<TS>/` | TBD | TBD | CNV added to MOSA as fifth view; downstream predictor blocks unchanged. |
+| 2026-05-05 | `20260505_131645` | `reports/model_comparison_cnv_mosa_only/feature_augmentation/20260505_131645/` | 0.3194 | 0.2124 | CNV added to MOSA as fifth view; downstream predictor blocks unchanged. Selected as current version. |
+
+Quick comparison against the previous non-CNV selected run `20260313_162348`:
+
+| Target family | Previous selected r | +CNV selected r | Delta |
+| --- | ---: | ---: | ---: |
+| Drug Response | 0.3231 | 0.3194 | -0.0037 |
+| CRISPR-Cas9 | 0.2139 | 0.2124 | -0.0015 |
+
 
 Useful extraction command after comparison:
 
