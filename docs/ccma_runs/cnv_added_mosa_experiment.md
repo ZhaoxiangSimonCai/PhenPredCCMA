@@ -219,6 +219,106 @@ print(sel[["target_family", "test_pearsonr_tabpfn", "test_pearsonr_random_forest
 PY
 ```
 
+## 6) Run SHAP For The Selected +CNV MOSA Run
+
+The selected upstream MOSA timestamp for SHAP is the current tracker selection:
+
+```bash
+cd /home/scai/scratch/PhenPredCCMA
+PY=/home/scai/anaconda3/envs/mosa/bin/python
+TS=20260505_131645
+mkdir -p docs/ccma_runs/logs
+```
+
+Sanity checks before launching SHAP:
+
+```bash
+ls -lh reports/vae/files/${TS}_model.pt
+ls -lh reports/vae/configs/history/${TS}_hyperparameters.json
+ls -lh reports/vae/files/${TS}_imputed_copynumber.csv.gz
+```
+
+Current status before this stage: no `${TS}_shap_*` outputs were present under `reports/vae/files/`, so SHAP still needs to be generated for the selected +CNV run.
+
+CRISPR-Cas9 SHAP:
+
+```bash
+LOG="docs/ccma_runs/logs/run_ccma_shap_${TS}_crisprcas9_$(date +%Y%m%d_%H%M%S).log"
+set -o pipefail
+"$PY" -m PhenPred.vae.RunCCMAShap \
+  --timestamp "$TS" \
+  --explain-target crisprcas9 \
+  --all-samples \
+  --multi-gpu-shap \
+  --n-samples 50 \
+  --seed 42 \
+  2>&1 | tee "$LOG"
+echo "exit_code=$? log=$LOG"
+```
+
+Drug-response SHAP:
+
+```bash
+LOG="docs/ccma_runs/logs/run_ccma_shap_${TS}_drugresponse_$(date +%Y%m%d_%H%M%S).log"
+set -o pipefail
+"$PY" -m PhenPred.vae.RunCCMAShap \
+  --timestamp "$TS" \
+  --explain-target drugresponse \
+  --all-samples \
+  --multi-gpu-shap \
+  --n-samples 50 \
+  --seed 42 \
+  2>&1 | tee "$LOG"
+echo "exit_code=$? log=$LOG"
+```
+
+If memory becomes limiting, rerun the same target with explicit chunking or a smaller SHAP batch:
+
+```bash
+"$PY" -m PhenPred.vae.RunCCMAShap \
+  --timestamp "$TS" \
+  --explain-target crisprcas9 \
+  --shap-batch-size 64 \
+  --target-chunk-size 1 \
+  --multi-gpu-shap \
+  --n-samples 50 \
+  --seed 42
+```
+
+The current runner writes aggregate mean-absolute SHAP outputs with a `_mean_abs` suffix. Check CRISPR-Cas9 outputs:
+
+```bash
+ls -lh reports/vae/files/${TS}_shap_values_crisprcas9_mean_abs.csv.gz
+ls -lh reports/vae/files/${TS}_shap_feature_ranking_crisprcas9_mean_abs.csv
+ls -lh reports/vae/files/${TS}_shap_omic_ranking_crisprcas9_mean_abs.csv
+ls -lh reports/vae/files/${TS}_shap_values_top_features_crisprcas9_mean_abs.feather
+ls -lh reports/vae/${TS}_shap_omic_ranking_crisprcas9_mean_abs.png
+ls -lh reports/vae/${TS}_shap_omic_ranking_crisprcas9_mean_abs.pdf
+```
+
+Check drug-response outputs:
+
+```bash
+ls -lh reports/vae/files/${TS}_shap_values_drugresponse_mean_abs.csv.gz
+ls -lh reports/vae/files/${TS}_shap_feature_ranking_drugresponse_mean_abs.csv
+ls -lh reports/vae/files/${TS}_shap_omic_ranking_drugresponse_mean_abs.csv
+ls -lh reports/vae/files/${TS}_shap_values_top_features_drugresponse_mean_abs.feather
+ls -lh reports/vae/${TS}_shap_omic_ranking_drugresponse_mean_abs.png
+ls -lh reports/vae/${TS}_shap_omic_ranking_drugresponse_mean_abs.pdf
+```
+
+After the CRISPR-Cas9 outputs exist, open the existing notebook and set the timestamp to the selected +CNV run:
+
+```bash
+jupyter lab notebooks/shap_analysis_ccma_crispr.ipynb
+```
+
+In the notebook:
+
+```python
+TIMESTAMP = "20260505_131645"
+```
+
 ## Optional: Direct CNV As A Downstream Predictor
 
 The commands above test whether adding CNV to MOSA improves the selected downstream workflow while keeping the downstream predictor set unchanged.
