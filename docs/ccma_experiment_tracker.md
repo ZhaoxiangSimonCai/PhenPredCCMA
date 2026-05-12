@@ -1,17 +1,18 @@
 # CCMA Experiment Tracker
 
-Last updated: 2026-05-05
+Last updated: 2026-05-11
 
 ## Current Selected Version
 
-Use the copy-number-augmented `feature_augmentation` downstream experiment from MOSA timestamp `20260505_131645`.
+Use the **union variant** (`min_views_per_sample=1`, ~425 cell lines) of the copy-number-augmented `feature_augmentation` downstream experiment from MOSA timestamp `20260511_174623`.
 
 Selected final model/setting:
 
 - Model: standard TabPFN, not the finetuned TabPFN branch
 - Downstream experiment: `feature_augmentation`
 - Selected sample frame and variant: `expanded` / `mosa_all`
-- Upstream MOSA run: `20260505_131645`, `ccma_scratch_cnv`
+- Upstream MOSA run: `20260511_174623`, `ccma_scratch_cnv_union`
+- Sample-inclusion criterion: `min_views_per_sample = 1` (union of all CCMA cell lines with at least one omic; ~425 augmented cell lines, MOSA-train 421 / test 24 unchanged from the prior holdout)
 - Added upstream view: `copynumber`, preprocessed from `data/CCMA/cnv.csv`
 - Downstream predictor blocks: unchanged from the selected non-CNV workflow; CNV is used through MOSA imputation, not as a direct downstream predictor block
 - Baseline used in the final comparison: random forest `overlap` / `original`
@@ -22,38 +23,41 @@ Selected final model/setting:
 
 Primary artifacts:
 
-- Upstream MOSA config: `reports/vae/configs/history/20260505_131645_hyperparameters.json`
-- Upstream MOSA outputs: `reports/vae/files/20260505_131645_*`
+- Upstream MOSA config: `reports/vae/configs/hyperparameters_ccma_scratch_cnv_union.json` (`min_views_per_sample=1`, `dataname=ccma_scratch_cnv_union`)
+- Upstream MOSA config (archived): `reports/vae/configs/history/20260511_174623_hyperparameters.json`
+- Upstream MOSA outputs: `reports/vae/files/20260511_174623_*`
 - CNV preprocessing summary: `data/clines/ccma_processed/copynumber_ccma_preprocess_summary.json`
 - Selected TabPFN outputs:
-  - `reports/tabpfn_cnv_mosa_only/feature_augmentation/20260505_131645/drugresponse/expanded/mosa_all/`
-  - `reports/tabpfn_cnv_mosa_only/feature_augmentation/20260505_131645/crisprcas9/expanded/mosa_all/`
+  - `reports/tabpfn_cnv_mosa_only_union/feature_augmentation/20260511_174623/drugresponse/expanded/mosa_all/`
+  - `reports/tabpfn_cnv_mosa_only_union/feature_augmentation/20260511_174623/crisprcas9/expanded/mosa_all/`
 - RF baseline outputs:
-  - `reports/random_forest_cnv_mosa_only/feature_augmentation/20260505_131645/drugresponse/overlap/original/`
-  - `reports/random_forest_cnv_mosa_only/feature_augmentation/20260505_131645/crisprcas9/overlap/original/`
-- Cross-model summary for the selected CNV comparison: `reports/model_comparison_cnv_mosa_only/feature_augmentation/20260505_131645/summary_model_comparison.csv`
-- Cross-model per-target data: `reports/model_comparison_cnv_mosa_only/feature_augmentation/20260505_131645/combined_per_target.csv`
-- Aggregate comparison plot: `reports/model_comparison_cnv_mosa_only/feature_augmentation/20260505_131645/aggregate_model_comparison.png`
+  - `reports/random_forest_cnv_mosa_only_union/feature_augmentation/20260511_174623/drugresponse/overlap/original/`
+  - `reports/random_forest_cnv_mosa_only_union/feature_augmentation/20260511_174623/crisprcas9/overlap/original/`
+- Cross-model summary for the selected union comparison: `reports/model_comparison_cnv_mosa_only_union/feature_augmentation/20260511_174623/summary_model_comparison.csv`
+- Cross-model per-target data: `reports/model_comparison_cnv_mosa_only_union/feature_augmentation/20260511_174623/combined_per_target.csv`
+- Aggregate comparison plot: `reports/model_comparison_cnv_mosa_only_union/feature_augmentation/20260511_174623/aggregate_model_comparison.png`
+- Notebooks (figure generation): `notebooks/cba2026_claude_union/`
+- Runbook: `docs/ccma_runs/union_variant_experiment.md`
 
 ## Current Selected Results
 
-These are the headline values for the selected +CNV version.
+These are the headline values for the selected union variant (≥1 omic). The "Previous selected TabPFN r" column refers to the prior ≥2-omic CNV run (`20260505_131645`); the "Delta vs previous" column is union − ≥2.
 
 | Target family | RF overlap/original baseline | RF expanded/mosa_all | TabPFN overlap/original | Selected TabPFN expanded/mosa_all | Selected gain vs RF baseline | Per-target improvement vs RF baseline | Previous selected TabPFN r | Delta vs previous |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Drug Response | 0.2346 | 0.2626 | 0.2207 | 0.3194 | +0.0849 (+36.2%) | 70.0% improved; median delta r = 0.0985 | 0.3231 | -0.0037 |
-| CRISPR-Cas9 | 0.1510 | 0.1819 | 0.1436 | 0.2124 | +0.0613 (+40.6%) | 64.0% improved; median delta r = 0.0668 | 0.2139 | -0.0015 |
+| Drug Response | 0.2346 | 0.2856 | 0.2207 | 0.3481 | +0.1135 (+48.4%) | 74.4% improved; median delta r = 0.1145 | 0.3194 | +0.0287 |
+| CRISPR-Cas9 | 0.1510 | 0.1973 | 0.1436 | 0.2195 | +0.0685 (+45.4%) | 65.2% improved; median delta r = 0.0675 | 0.2124 | +0.0071 |
 
 Selected TabPFN run details:
 
 | Target family | Train n | Test n | Targets | Test observations | Test Pearson r | Test R2 | Test RMSE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Drug Response | 232 | 24 | 500 | 11951 | 0.3194 | 0.0344 | 0.1688 |
-| CRISPR-Cas9 | 132 | 24 | 500 | 11932 | 0.2124 | -0.0019 | 0.6490 |
+| Drug Response | 244 | 24 | 500 | 11951 | 0.3481 | 0.0513 | 0.1672 |
+| CRISPR-Cas9 | 140 | 24 | 500 | 11932 | 0.2195 | 0.0024 | 0.6472 |
 
 ## Copy Number / CNV Status
 
-Copy number is used in the current selected upstream MOSA run.
+Copy number is used in the current selected upstream MOSA run (`20260511_174623`).
 
 CNV preprocessing:
 
@@ -86,23 +90,26 @@ So CNV enters the selected workflow through MOSA's learned/imputed views, not as
 
 ## Previous Selected Version
 
-The previous selected version was the non-CNV `feature_augmentation` downstream experiment from MOSA timestamp `20260313_162348`.
+The previous selected version was the ≥2-omic CNV `feature_augmentation` downstream experiment from MOSA timestamp `20260505_131645`.
 
 Key artifacts:
 
-- Upstream MOSA config: `reports/vae/configs/history/20260313_162348_hyperparameters.json`
-- Upstream MOSA outputs: `reports/vae/files/20260313_162348_*`
-- Cross-model summary: `reports/model_comparison/feature_augmentation/20260313_162348/summary_model_comparison.csv`
-- Aggregate comparison plot: `reports/model_comparison/feature_augmentation/20260313_162348/aggregate_model_comparison.png`
+- Upstream MOSA config: `reports/vae/configs/hyperparameters_ccma_scratch_cnv.json` (`min_views_per_sample=2`, `dataname=ccma_scratch_cnv`)
+- Upstream MOSA config (archived): `reports/vae/configs/history/20260505_131645_hyperparameters.json`
+- Upstream MOSA outputs: `reports/vae/files/20260505_131645_*`
+- Cross-model summary: `reports/model_comparison_cnv_mosa_only/feature_augmentation/20260505_131645/summary_model_comparison.csv`
+- Aggregate comparison plot: `reports/model_comparison_cnv_mosa_only/feature_augmentation/20260505_131645/aggregate_model_comparison.png`
 
 Previous selected values:
 
 | Target family | Selected TabPFN expanded/mosa_all r | RF overlap/original baseline | Notes |
 | --- | ---: | ---: | --- |
-| Drug Response | 0.3231 | 0.2346 | Matched the original final figures before the CNV rerun. |
-| CRISPR-Cas9 | 0.2139 | 0.1510 | Matched the original final figures before the CNV rerun. |
+| Drug Response | 0.3194 | 0.2346 | Same upstream views as the union variant; differs only in `min_views_per_sample=2` (vs 1). Train n=232 (vs 244 under union). |
+| CRISPR-Cas9 | 0.2124 | 0.1510 | Same upstream views as the union variant; train n=132 (vs 140 under union). |
 
-That upstream MOSA config used `crisprcas9`, `drugresponse`, `transcriptomics`, and `methylation`; it used `mutations` as labels/conditionals and did not include `copynumber`.
+That upstream MOSA config used `crisprcas9`, `drugresponse`, `transcriptomics`, `methylation`, and `copynumber`, with `mutations` as labels/conditionals — identical to the current selected union variant. Promotion to the union variant on 2026-05-11 was driven by the +0.0287 (drug) and +0.0071 (CRISPR) Pearson r improvements at `expanded/mosa_all`.
+
+Earlier non-CNV selected version (chronologically older): MOSA `20260313_162348`. Selected TabPFN `expanded/mosa_all` r: drug response `0.3231`, CRISPR-Cas9 `0.2139`. Artifacts under `reports/{vae/files,tabpfn,random_forest,model_comparison}/.../20260313_162348/`. That upstream config used four views (no `copynumber`).
 
 ## Other Experiment Branches
 
@@ -110,20 +117,24 @@ These were run or documented, but they are not the current selected version.
 
 | Branch | Location | Status | Notes |
 | --- | --- | --- | --- |
-| Standard TabPFN + CNV MOSA feature augmentation | `reports/tabpfn_cnv_mosa_only/feature_augmentation/20260505_131645/` | Current selected downstream model | Selected setting is `expanded/mosa_all`. |
-| Random forest + CNV MOSA feature augmentation | `reports/random_forest_cnv_mosa_only/feature_augmentation/20260505_131645/` | Current comparator | Used for RF baseline and RF expanded/mosa_all bars. |
-| Cross-model + CNV feature comparison | `reports/model_comparison_cnv_mosa_only/feature_augmentation/20260505_131645/` | Current selected comparison artifact | Contains the current selected summary and plot. |
-| Standard TabPFN non-CNV feature augmentation | `reports/tabpfn/feature_augmentation/20260313_162348/` | Previous selected version | Values match the original final figures. |
-| Random forest non-CNV feature augmentation | `reports/random_forest/feature_augmentation/20260313_162348/` | Previous comparator | Used for the previous RF baseline and RF expanded/mosa_all bars. |
+| Standard TabPFN + union CNV MOSA feature augmentation | `reports/tabpfn_cnv_mosa_only_union/feature_augmentation/20260511_174623/` | **Current selected downstream model** | Selected setting is `expanded/mosa_all`. Union variant (`min_views_per_sample=1`). |
+| Random forest + union CNV MOSA feature augmentation | `reports/random_forest_cnv_mosa_only_union/feature_augmentation/20260511_174623/` | **Current comparator** | Used for RF baseline and RF expanded/mosa_all bars in the selected version. |
+| Cross-model + union CNV feature comparison | `reports/model_comparison_cnv_mosa_only_union/feature_augmentation/20260511_174623/` | **Current selected comparison artifact** | Contains the current selected summary and plot. |
+| Standard TabPFN + ≥2 CNV MOSA feature augmentation | `reports/tabpfn_cnv_mosa_only/feature_augmentation/20260505_131645/` | Previous selected downstream model (superseded 2026-05-11) | Same upstream views as union; `min_views_per_sample=2`. |
+| Random forest + ≥2 CNV MOSA feature augmentation | `reports/random_forest_cnv_mosa_only/feature_augmentation/20260505_131645/` | Previous comparator | RF rows for the ≥2 version. |
+| Cross-model + ≥2 CNV feature comparison | `reports/model_comparison_cnv_mosa_only/feature_augmentation/20260505_131645/` | Previous selected comparison artifact | Containing the headline values for the ≥2 variant. |
+| Standard TabPFN non-CNV feature augmentation | `reports/tabpfn/feature_augmentation/20260313_162348/` | Older non-CNV selected (pre-CNV era) | Values match the original final figures. |
+| Random forest non-CNV feature augmentation | `reports/random_forest/feature_augmentation/20260313_162348/` | Older non-CNV comparator | Used for the pre-CNV RF baseline and RF expanded/mosa_all bars. |
 | Standard TabPFN pseudo-label augmentation | `reports/tabpfn/pseudolabel_augmentation/20260313_162348/` | Not selected | Pseudo-label aggregate values do not match the selected final setting. |
 | Random forest pseudo-label augmentation | `reports/random_forest/pseudolabel_augmentation/20260313_162348/` | Not selected | Used for pseudo-label comparison only. |
-| Finetuned TabPFN default checkpoint | `reports/tabpfn_finetune/default_ckpt/` | Not selected | Close to the previous selected standard TabPFN values, but not selected. |
+| Finetuned TabPFN default checkpoint | `reports/tabpfn_finetune/default_ckpt/` | Not selected | Close to the prior standard TabPFN values on the non-CNV run, but not selected. |
 
 ## Reproduction Command References
 
 Command runbooks:
 
 - CNV runbook: `docs/ccma_runs/cnv_added_mosa_experiment.md`
+- Union variant (≥1 omic) runbook: `docs/ccma_runs/union_variant_experiment.md`
 - TabPFN runs: `docs/ccma_runs/tabpfn_experiment_commands.md`
 - Random forest and model comparison: `docs/ccma_runs/random_forest_model_comparison_commands.md`
 
@@ -131,8 +142,8 @@ Key environment for the current selected run:
 
 ```bash
 PY=/home/scai/anaconda3/envs/mosa/bin/python
-TS=20260505_131645
-REPORTS_STD=reports/tabpfn_cnv_mosa_only
-RF_REPORTS=reports/random_forest_cnv_mosa_only
-MODEL_COMPARE_REPORTS=reports/model_comparison_cnv_mosa_only
+TS=20260511_174623
+REPORTS_STD=reports/tabpfn_cnv_mosa_only_union
+RF_REPORTS=reports/random_forest_cnv_mosa_only_union
+MODEL_COMPARE_REPORTS=reports/model_comparison_cnv_mosa_only_union
 ```

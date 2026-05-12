@@ -1,0 +1,102 @@
+{
+    "dataname": "ccma_scratch_cnv_union",
+    "dataset_class": "ccma",
+    "load_run": null,
+    "save_model": true,
+    "skip_cv": false,
+    "verbose": 0,
+    "skip_benchmarks": false,
+    "benchmark_mode": "internal",
+    "datasets": {
+        "crisprcas9": "ccma_processed/crisprcas9_ccma_mosa_train.csv",
+        "drugresponse": "ccma_processed/drugresponse_ccma_mosa_train.csv",
+        "transcriptomics": "ccma_processed/transcriptomics_ccma_mosa_train.csv",
+        "methylation": "ccma_processed/methylation_ccma_mosa_train.csv",
+        "copynumber": "ccma_processed/copynumber_ccma_mosa_train.csv"
+    },
+    "view_loss_recon_type": [
+        "mean",
+        "mean",
+        "mean",
+        "mean",
+        "mean"
+    ],
+    "view_loss_weights": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+    ],
+    "model": "MOSA",
+    "standardize": true,
+    "labels": [
+        "mutations"
+    ],
+    "labels_mutations_file": "ccma_processed/mutations_binary_ccma_mosa_train.csv",
+    "filter_features": [
+        "transcriptomics",
+        "crisprcas9",
+        "methylation"
+    ],
+    "filtered_encoder_only": true,
+    "batch_norm": false,
+    "use_conditionals": true,
+    "feature_miss_rate_thres": 0.85,
+    "min_views_per_sample": 1,
+    "num_epochs": 200,
+    "learning_rate": 5e-05,
+    "batch_size": 128,
+    "n_folds": 3,
+    "view_latent_dim": 0.25,
+    "latent_dim": 200,
+    "hidden_dims": [
+        0.7
+    ],
+    "probability": 0.4,
+    "feature_dropout": 0.0,
+    "view_dropout": 0.3,
+    "w_decay": 0.0005,
+    "w_kl": 0.0001,
+    "w_rec": 1,
+    "w_gauss": 0.0001,
+    "w_cat": 0.01,
+    "w_contrastive": 0.0,
+    "contrastive_pos_margin": 0.85,
+    "contrastive_neg_margin": 0.15,
+    "optimizer_type": "adam",
+    "reconstruction_loss": "mse",
+    "activation_function": "prelu",
+    "scheduler": "plateau",
+    "scheduler_threshold": 0.0001,
+    "scheduler_factor": 0.6,
+    "scheduler_patience": 7,
+    "scheduler_min_lr": 1e-07,
+    "grad_clip_max_norm": 1.0,
+    "kl_logvar_clip_min": -12.0,
+    "kl_logvar_clip_max": 12.0,
+    "transfer_mode": null,
+    "transfer_checkpoint": null,
+    "transfer_hypers_json": null,
+    "transfer_freeze_epochs": 0,
+    "align_to_reference_features": false,
+    "reference_hypers_json": "reports/vae/configs/history/20231023_092657_hyperparameters.json",
+    "reference_feature_views": [
+        "crisprcas9",
+        "transcriptomics",
+        "methylation",
+        "copynumber"
+    ],
+    "shap_target_view": "crisprcas9",
+    "shap_target_gene_count": -1,
+    "shap_target_genes_file": null,
+    "shap_cross_omic_only": true,
+    "holdout_datasets": {
+        "crisprcas9": "ccma_processed/crisprcas9_ccma_mosa_test.csv",
+        "drugresponse": "ccma_processed/drugresponse_ccma_mosa_test.csv",
+        "transcriptomics": "ccma_processed/transcriptomics_ccma_mosa_test.csv",
+        "methylation": "ccma_processed/methylation_ccma_mosa_test.csv",
+        "copynumber": "ccma_processed/copynumber_ccma_mosa_test.csv"
+    },
+    "holdout_labels_mutations_file": "ccma_processed/mutations_binary_ccma_mosa_test.csv"
+}
