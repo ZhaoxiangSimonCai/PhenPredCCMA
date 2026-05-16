@@ -1600,6 +1600,129 @@ def figP11_cnv_ablation() -> Path | None:
 
 
 # ---------------------------------------------------------------------------
+# Figure P12 — TabPFN vs RF per-target consistency within each data scope
+# ---------------------------------------------------------------------------
+
+# Two same-data, same-frame contrasts. Both models see the same training and
+# test split inside each scope, so any per-target divergence is purely the
+# learner choice (TabPFN vs RF).
+CONSISTENCY_SCOPES = [
+    ("orig",     "Original",       "r_rf_orig",     "r_tabpfn_orig"),
+    ("mosa_all", "MOSA expanded",  "r_rf_mosa_all", "r_tabpfn_mosa_all"),
+]
+
+
+def _pearson_spearman(x: np.ndarray, y: np.ndarray) -> tuple[float, float, int]:
+    mask = ~(np.isnan(x) | np.isnan(y))
+    x, y = x[mask], y[mask]
+    if x.size < 3:
+        return (float("nan"), float("nan"), int(x.size))
+    pr = float(stats.pearsonr(x, y).statistic)
+    sr = float(stats.spearmanr(x, y).statistic)
+    return (pr, sr, int(x.size))
+
+
+def _draw_consistency_scatter(ax, df: pd.DataFrame, color: str, *,
+                              x_col: str, y_col: str,
+                              x_label: str, y_label: str, title: str) -> None:
+    valid = df.dropna(subset=[x_col, y_col])
+    x = valid[x_col].values
+    y = valid[y_col].values
+    if x.size == 0:
+        ax.text(0.5, 0.5, "no data", transform=ax.transAxes, ha="center")
+        return
+    pr, sr, n = _pearson_spearman(x, y)
+    lim_lo = min(float(x.min()), float(y.min()), -0.1) - 0.05
+    lim_hi = max(float(x.max()), float(y.max()), 0.6) + 0.05
+    ax.plot([lim_lo, lim_hi], [lim_lo, lim_hi], linestyle="--",
+            color="#888888", linewidth=0.7, zorder=1)
+    ax.axhline(0, color="#cccccc", linewidth=0.5, zorder=0)
+    ax.axvline(0, color="#cccccc", linewidth=0.5, zorder=0)
+    ax.scatter(
+        x, y, s=8.0, color=color, alpha=SCATTER_ALPHA["new"],
+        linewidths=0.0, rasterized=True, zorder=2,
+    )
+    # OLS fit only when there is enough non-degenerate data.
+    if n >= 5 and np.std(x) > 0:
+        slope, intercept = np.polyfit(x, y, 1)
+        xs = np.array([lim_lo, lim_hi])
+        ax.plot(xs, slope * xs + intercept,
+                color="#333333", linewidth=0.8, zorder=3)
+    ax.set_xlim(lim_lo, lim_hi)
+    ax.set_ylim(lim_lo, lim_hi)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.set_title(title)
+    ax.grid(color="#e5e5e5", linewidth=0.4, zorder=0)
+    ax.set_axisbelow(True)
+    ax.text(
+        0.04, 0.96,
+        f"n = {n}\nPearson r = {pr:.3f}\nSpearman " + "ρ" + f" = {sr:.3f}",
+        transform=ax.transAxes, ha="left", va="top",
+        fontsize=plt.rcParams["legend.fontsize"] - 0.5,
+        bbox=dict(facecolor="white", edgecolor="none", pad=0.6, alpha=0.85),
+    )
+
+
+def figP12_model_consistency(decomposed: pd.DataFrame) -> Path:
+    """2x2 grid: per-target RF r vs TabPFN r, within each data scope.
+
+    Rows = scope (Original then MOSA expanded), cols = target family.
+    Each scope keeps both models on the same train/test split so the
+    scatter isolates learner agreement.
+    """
+    configure_nature_style("composite")
+    fig, axes = plt.subplots(2, 2, figsize=(7.0, 7.2))
+    fig.subplots_adjust(left=0.10, right=0.985, top=0.93, bottom=0.10,
+                        wspace=0.32, hspace=0.42)
+    panel_letters = [["a", "b"], ["c", "d"]]
+    for ri, (_scope_key, scope_label, x_col, y_col) in enumerate(CONSISTENCY_SCOPES):
+        for ci, family in enumerate(FAMILY_ORDER):
+            ax = axes[ri, ci]
+            sub = decomposed[decomposed["target_family"] == family]
+            _draw_consistency_scatter(
+                ax, sub, FAMILY_COLORS[family],
+                x_col=x_col, y_col=y_col,
+                x_label="Random Forest  Pearson r",
+                y_label="TabPFN  Pearson r",
+                title=f"{FAMILY_DISPLAY[family]} — {scope_label}",
+            )
+            panel_label(ax, panel_letters[ri][ci], offset=(-0.20, 1.05))
+    out = FIG_DIR / "figP12_model_consistency"
+    save_figure(fig, out)
+    return Path(str(out) + ".pdf")
+
+
+def compute_model_consistency(decomposed: pd.DataFrame) -> pd.DataFrame:
+    """Per (family, scope) Pearson and Spearman between RF and TabPFN
+    per-target Pearson r vectors."""
+    rows = []
+    for scope_key, scope_label, x_col, y_col in CONSISTENCY_SCOPES:
+        for family in FAMILY_ORDER:
+            sub = decomposed[decomposed["target_family"] == family]
+            x = sub[x_col].values
+            y = sub[y_col].values
+            pr, sr, n = _pearson_spearman(x, y)
+            mask = ~(np.isnan(x) | np.isnan(y))
+            xv, yv = x[mask], y[mask]
+            rows.append({
+                "target_family": family,
+                "scope": scope_key,
+                "scope_label": scope_label,
+                "rf_column": x_col,
+                "tabpfn_column": y_col,
+                "n_targets": n,
+                "pearson_r": pr,
+                "spearman_rho": sr,
+                "mean_rf_r": float(np.mean(xv)) if xv.size else float("nan"),
+                "mean_tabpfn_r": float(np.mean(yv)) if yv.size else float("nan"),
+                "frac_tabpfn_better": float(np.mean(yv > xv)) if yv.size else float("nan"),
+            })
+    return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------
 # Tables
 # ---------------------------------------------------------------------------
 
@@ -1701,6 +1824,11 @@ def write_prediction_tables(summary_long: pd.DataFrame, per_target_long: pd.Data
     scope = load_imputation_scope()
     paths["prediction_imputation_scope"] = FIG_DIR / "prediction_imputation_scope.csv"
     scope.to_csv(paths["prediction_imputation_scope"], index=False)
+
+    # TabPFN vs RF consistency within each data scope (Fig P12).
+    consistency = compute_model_consistency(decomposed)
+    paths["prediction_model_consistency"] = FIG_DIR / "prediction_model_consistency.csv"
+    consistency.to_csv(paths["prediction_model_consistency"], index=False)
 
     return paths
 
@@ -2033,6 +2161,55 @@ def single_figP10a_scope(summary_long: pd.DataFrame) -> Path:
     return _save_single(fig, "single_figP10a_scope")
 
 
+def _single_figP12_panel(decomposed: pd.DataFrame, *, family: str,
+                          scope_key: str, scope_label: str,
+                          x_col: str, y_col: str, stem: str) -> Path:
+    configure_nature_style("column")
+    fig, ax = plt.subplots(figsize=(4.4, 4.0))
+    fig.subplots_adjust(left=0.16, right=0.97, top=0.92, bottom=0.16)
+    sub = decomposed[decomposed["target_family"] == family]
+    _draw_consistency_scatter(
+        ax, sub, FAMILY_COLORS[family],
+        x_col=x_col, y_col=y_col,
+        x_label="Random Forest  Pearson r",
+        y_label="TabPFN  Pearson r",
+        title=f"{FAMILY_DISPLAY[family]} — {scope_label}",
+    )
+    return _save_single(fig, stem)
+
+
+def single_figP12a_consistency_crispr_orig(decomposed: pd.DataFrame) -> Path:
+    return _single_figP12_panel(
+        decomposed, family="crisprcas9", scope_key="orig", scope_label="Original",
+        x_col="r_rf_orig", y_col="r_tabpfn_orig",
+        stem="single_figP12a_consistency_crispr_orig",
+    )
+
+
+def single_figP12b_consistency_drug_orig(decomposed: pd.DataFrame) -> Path:
+    return _single_figP12_panel(
+        decomposed, family="drugresponse", scope_key="orig", scope_label="Original",
+        x_col="r_rf_orig", y_col="r_tabpfn_orig",
+        stem="single_figP12b_consistency_drug_orig",
+    )
+
+
+def single_figP12c_consistency_crispr_mosa(decomposed: pd.DataFrame) -> Path:
+    return _single_figP12_panel(
+        decomposed, family="crisprcas9", scope_key="mosa_all", scope_label="MOSA expanded",
+        x_col="r_rf_mosa_all", y_col="r_tabpfn_mosa_all",
+        stem="single_figP12c_consistency_crispr_mosa",
+    )
+
+
+def single_figP12d_consistency_drug_mosa(decomposed: pd.DataFrame) -> Path:
+    return _single_figP12_panel(
+        decomposed, family="drugresponse", scope_key="mosa_all", scope_label="MOSA expanded",
+        x_col="r_rf_mosa_all", y_col="r_tabpfn_mosa_all",
+        stem="single_figP12d_consistency_drug_mosa",
+    )
+
+
 def render_all_singles(summary_long: pd.DataFrame,
                         per_target_long: pd.DataFrame,
                         decomposed: pd.DataFrame,
@@ -2059,6 +2236,10 @@ def render_all_singles(summary_long: pd.DataFrame,
         single_figP8_strategy_crispr(decomposed),
         single_figP8_strategy_drug(decomposed),
         single_figP10a_scope(summary_long),
+        single_figP12a_consistency_crispr_orig(decomposed),
+        single_figP12b_consistency_drug_orig(decomposed),
+        single_figP12c_consistency_crispr_mosa(decomposed),
+        single_figP12d_consistency_drug_mosa(decomposed),
     ])
     return paths
 
@@ -2089,6 +2270,7 @@ def run_all() -> None:
         p9 = None
     p10 = figP10_imputation_scope(summary_long)
     p11 = figP11_cnv_ablation()
+    p12 = figP12_model_consistency(decomposed)
 
     table_paths = write_prediction_tables(
         summary_long, per_target_long, decomposed, selected_targets=selected,
@@ -2097,7 +2279,7 @@ def run_all() -> None:
     for label, p in [
         ("figP1", p1), ("figP2", p2), ("figP3", p3), ("figP4", p4),
         ("figP5", p5), ("figP6", p6), ("figP7", p7), ("figP8", p8),
-        ("figP9", p9), ("figP10", p10), ("figP11", p11),
+        ("figP9", p9), ("figP10", p10), ("figP11", p11), ("figP12", p12),
     ]:
         if p is not None:
             print(f"{label}: {p.relative_to(ROOT)}")
