@@ -1315,7 +1315,9 @@ def _scatter_imputation(ax, truth: pd.DataFrame, pred: pd.DataFrame, omic: str) 
     ax.scatter(t_plot, p_plot, s=2.0, color=color, alpha=0.20,
                linewidths=0, rasterized=True, zorder=2)
     r = float(np.corrcoef(t, p)[0, 1])
-    ax.set_xlim(*lims); ax.set_ylim(*lims)
+    non_negative_measured = {"drugresponse", "transcriptomics", "methylation"}
+    lim_lo = 0.0 if omic in non_negative_measured else lims[0]
+    ax.set_xlim(lim_lo, lims[1]); ax.set_ylim(lim_lo, lims[1])
     ax.set_aspect("equal", adjustable="box")
     ax.set_xlabel("Measured")
     ax.set_ylabel("MOSA imputed")
@@ -1376,7 +1378,7 @@ def figP10_imputation_scope(summary_long: pd.DataFrame) -> Path:
     scope = load_imputation_scope()
     configure_nature_style("composite")
     fig, axes = plt.subplots(1, 2, figsize=(7.4, 3.6))
-    fig.subplots_adjust(left=0.08, right=0.985, top=0.88, bottom=0.20, wspace=0.30)
+    fig.subplots_adjust(left=0.08, right=0.985, top=0.88, bottom=0.26, wspace=0.30)
 
     # Panel a: per-omic bar of measured cells vs cells after MOSA.
     ax_a = axes[0]
@@ -1398,7 +1400,8 @@ def figP10_imputation_scope(summary_long: pd.DataFrame) -> Path:
     ax_a.set_title("Cohort coverage by omic layer")
     ax_a.grid(axis="x", color="#e5e5e5", linewidth=0.4, zorder=0)
     ax_a.set_axisbelow(True)
-    ax_a.legend(loc="lower right", frameon=False, handlelength=1.0)
+    ax_a.legend(loc="upper center", bbox_to_anchor=(0.5, -0.22), ncol=2,
+                frameon=False, handlelength=1.0)
     panel_label(ax_a, "a", offset=(-0.30, 1.08))
     for i, (m, mosa) in enumerate(zip(scope["n_cells_measured"], scope["n_cells_after_mosa"])):
         added = mosa - m
@@ -2000,7 +2003,7 @@ def single_figP10a_scope(summary_long: pd.DataFrame) -> Path:
     configure_nature_style("column")
     scope = load_imputation_scope()
     fig, ax = plt.subplots(figsize=(4.6, 3.4))
-    fig.subplots_adjust(left=0.30, right=0.96, top=0.90, bottom=0.18)
+    fig.subplots_adjust(left=0.30, right=0.96, top=0.90, bottom=0.28)
     omics = scope["omic_layer"].tolist()
     ypos = np.arange(len(omics))
     bar_h = 0.36
@@ -2019,7 +2022,8 @@ def single_figP10a_scope(summary_long: pd.DataFrame) -> Path:
     ax.set_title("Cohort coverage by omic layer")
     ax.grid(axis="x", color="#e5e5e5", linewidth=0.4, zorder=0)
     ax.set_axisbelow(True)
-    ax.legend(frameon=False, handlelength=1.0, loc="lower right")
+    ax.legend(frameon=False, handlelength=1.0, loc="upper center",
+              bbox_to_anchor=(0.5, -0.22), ncol=2)
     for i, (m, mosa) in enumerate(zip(scope["n_cells_measured"], scope["n_cells_after_mosa"])):
         added = mosa - m
         if added > 0:
