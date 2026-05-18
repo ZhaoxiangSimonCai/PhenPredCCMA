@@ -348,7 +348,7 @@ def run_single_experiment(
         f"selected_features={selector.total_selected}",
     )
 
-    pred_test, fit_diag = fit_predict_per_target(
+    pred_test, fit_diag, _ = fit_predict_per_target(
         cfg,
         label=f"final_{target_family}_{variant}",
         target_names=prepared.target_names,

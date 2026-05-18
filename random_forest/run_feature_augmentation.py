@@ -16,6 +16,7 @@ for path_str in [str(SCRIPT_DIR), str(TABPFN_DIR)]:
         sys.path.insert(0, path_str)
 
 from experiment_core import (  # type: ignore  # noqa: E402
+    NON_MOSA_IMPUTED_VIEWS,
     PREDICTOR_BLOCKS,
     RAW_VIEW_FILE_STEMS,
     PreparedRunData,
@@ -33,8 +34,9 @@ from experiment_core import (  # type: ignore  # noqa: E402
     write_selected_feature_artifacts,
     write_test_outputs,
 )
-from feature_selection import fit_feature_selector  # type: ignore  # noqa: E402
+from feature_selection import fit_feature_selector, fit_variance_only_selector  # type: ignore  # noqa: E402
 from model_core import fit_predict_per_target_rf  # noqa: E402
+import numpy as np
 import pandas as pd
 
 
@@ -56,6 +58,9 @@ class RunConfig:
     target_limit: int
     max_features: int
     min_features_per_modality: int
+    feature_selection_mode: str
+    corr_top_n: int
+    variance_cutoff: float
     rf_n_estimators: int
     rf_max_depth: int
     rf_min_samples_leaf: int
@@ -85,6 +90,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-limit", type=int, default=0, help="0 means use all targets.")
     parser.add_argument("--max-features", type=int, default=2000)
     parser.add_argument("--min-features-per-modality", type=int, default=100)
+    parser.add_argument(
+        "--feature-selection-mode",
+        type=str,
+        default="block_variance",
+        choices=["block_variance", "per_target_corr"],
+        help=(
+            "block_variance (default) keeps the existing per-block variance prefilter with "
+            "per-modality quotas. per_target_corr matches cdsr_models::random_forest: "
+            "variance cutoff per block, then top-N |corr(y)| features chosen per target "
+            "inside the fit loop with no modality quotas."
+        ),
+    )
+    parser.add_argument(
+        "--corr-top-n",
+        type=int,
+        default=500,
+        help="Top-N features per target by |Pearson r| with y (per_target_corr only).",
+    )
+    parser.add_argument(
+        "--variance-cutoff",
+        type=float,
+        default=0.01,
+        help="Variance prefilter cutoff applied per block (per_target_corr only).",
+    )
     parser.add_argument("--rf-n-estimators", type=int, default=300)
     parser.add_argument("--rf-max-depth", type=int, default=0, help="0 means no max depth limit.")
     parser.add_argument("--rf-min-samples-leaf", type=int, default=1)
@@ -108,6 +137,9 @@ def args_to_config(args: argparse.Namespace) -> RunConfig:
         target_limit=int(args.target_limit),
         max_features=int(args.max_features),
         min_features_per_modality=int(args.min_features_per_modality),
+        feature_selection_mode=str(args.feature_selection_mode),
+        corr_top_n=int(args.corr_top_n),
+        variance_cutoff=float(args.variance_cutoff),
         rf_n_estimators=int(args.rf_n_estimators),
         rf_max_depth=int(args.rf_max_depth),
         rf_min_samples_leaf=int(args.rf_min_samples_leaf),
@@ -147,11 +179,11 @@ def load_predictor_view(
     sample_frame: str,
     split: str,
 ):
-    if view_name == "mutations" or variant == "original":
+    if view_name in NON_MOSA_IMPUTED_VIEWS or variant == "original":
         frame_token = "overlap" if sample_frame == "overlap" else "mosa"
         file_stem = RAW_VIEW_FILE_STEMS[view_name]
         path = ccma_dir / f"{file_stem}_ccma_{frame_token}_{split}.csv"
-        return read_raw_view_matrix(path, view_name if view_name != "mutations" else "mutations"), path
+        return read_raw_view_matrix(path, view_name), path
 
     suffix = "nans_only" if variant == "mosa_nan_only" else "all"
     path = mosa_dir / f"{mosa_timestamp}_imputed_{view_name}_{split}_{suffix}.csv.gz"
@@ -191,7 +223,7 @@ def build_run_data(cfg: RunConfig, target_family: str, sample_frame: str, varian
         "target_names_source": str(mosa_target_path),
     }
 
-    non_mutation_views = [view for view in predictor_blocks if view != "mutations"]
+    mosa_imputed_views = [view for view in predictor_blocks if view not in NON_MOSA_IMPUTED_VIEWS]
     for view_name in predictor_blocks:
         train_df, train_path = load_predictor_view(
             ccma_dir=ccma_dir,
@@ -222,7 +254,7 @@ def build_run_data(cfg: RunConfig, target_family: str, sample_frame: str, varian
     if sample_frame == "overlap":
         train_sample_ids = target_train_ids
         test_sample_ids = target_test_ids
-        for view_name in non_mutation_views:
+        for view_name in mosa_imputed_views:
             missing_train = sorted(set(train_sample_ids) - set(feature_train_df[view_name].index.astype(str)))
             missing_test = sorted(set(test_sample_ids) - set(feature_test_df[view_name].index.astype(str)))
             if missing_train or missing_test:
@@ -236,11 +268,11 @@ def build_run_data(cfg: RunConfig, target_family: str, sample_frame: str, varian
     else:
         train_sample_ids = ordered_intersection(
             target_train_ids,
-            [feature_train_df[view_name].index.astype(str).tolist() for view_name in non_mutation_views],
+            [feature_train_df[view_name].index.astype(str).tolist() for view_name in mosa_imputed_views],
         )
         test_sample_ids = ordered_intersection(
             target_test_ids,
-            [feature_test_df[view_name].index.astype(str).tolist() for view_name in non_mutation_views],
+            [feature_test_df[view_name].index.astype(str).tolist() for view_name in mosa_imputed_views],
         )
 
     if sample_frame == "overlap":
@@ -282,24 +314,66 @@ def run_single_experiment(cfg: RunConfig, target_family: str, sample_frame: str,
 
     save_split_indices(out_dir, prepared)
 
-    selector = fit_feature_selector(
-        prepared.train_blocks,
-        max_features=cfg.max_features,
-        min_per_modality=cfg.min_features_per_modality,
-    )
+    if cfg.feature_selection_mode == "per_target_corr":
+        selector = fit_variance_only_selector(
+            prepared.train_blocks,
+            variance_cutoff=cfg.variance_cutoff,
+        )
+    else:
+        selector = fit_feature_selector(
+            prepared.train_blocks,
+            max_features=cfg.max_features,
+            min_per_modality=cfg.min_features_per_modality,
+        )
     preprocessor = fit_preprocessor(prepared.train_blocks)
     train_blocks = selector.transform_blocks(preprocessor.transform_blocks(prepared.train_blocks))
     test_blocks = selector.transform_blocks(preprocessor.transform_blocks(prepared.test_blocks))
     x_train = concat_blocks(train_blocks, PREDICTOR_BLOCKS[target_family])
     x_test = concat_blocks(test_blocks, PREDICTOR_BLOCKS[target_family])
 
+    feature_names_concat: List[str] = []
+    feature_blocks_concat: List[str] = []
+    for block_name in PREDICTOR_BLOCKS[target_family]:
+        all_names = prepared.feature_names_by_block[block_name]
+        idx = selector.indices_by_block.get(block_name, np.zeros((0,), dtype=np.int64))
+        for i in idx.tolist():
+            feature_names_concat.append(str(all_names[i]))
+            feature_blocks_concat.append(block_name)
+    if len(feature_names_concat) != x_train.shape[1]:
+        raise AssertionError(
+            f"Feature metadata length {len(feature_names_concat)} does not match "
+            f"x_train.shape[1] {x_train.shape[1]} for "
+            f"{target_family}/{sample_frame}/{variant}."
+        )
+
     maybe_log(
         cfg,
         f"[final][{target_family}/{sample_frame}/{variant}] "
-        f"train_n={x_train.shape[0]} test_n={x_test.shape[0]} selected_features={selector.total_selected}",
+        f"train_n={x_train.shape[0]} test_n={x_test.shape[0]} "
+        f"selected_features={selector.total_selected} "
+        f"mode={cfg.feature_selection_mode}",
     )
 
-    pred_test, fit_rows = fit_predict_per_target_rf(
+    if cfg.feature_selection_mode == "per_target_corr":
+        variance_summary = {
+            "feature_selection_mode": "per_target_corr",
+            "variance_cutoff": float(cfg.variance_cutoff),
+            "corr_top_n": int(cfg.corr_top_n),
+            "blocks": {
+                block_name: {
+                    "n_total": int(len(prepared.feature_names_by_block[block_name])),
+                    "n_after_variance": int(
+                        selector.indices_by_block.get(block_name, np.zeros((0,), dtype=np.int64)).size
+                    ),
+                }
+                for block_name in PREDICTOR_BLOCKS[target_family]
+            },
+            "total_after_variance": int(selector.total_selected),
+        }
+        with (out_dir / "variance_filter_summary.json").open("w", encoding="utf-8") as handle:
+            json.dump(variance_summary, handle, indent=2)
+
+    pred_test, fit_rows, selected_rows = fit_predict_per_target_rf(
         cfg,
         label=f"final_{target_family}_{sample_frame}_{variant}",
         target_names=prepared.target_names,
@@ -308,8 +382,17 @@ def run_single_experiment(cfg: RunConfig, target_family: str, sample_frame: str,
         train_mask=prepared.y_train_mask,
         eval_x=x_test,
         log_fn=lambda text: maybe_log(cfg, text),
+        corr_top_n=(cfg.corr_top_n if cfg.feature_selection_mode == "per_target_corr" else None),
+        feature_names=feature_names_concat,
+        feature_blocks=feature_blocks_concat,
     )
     pd.DataFrame(fit_rows).to_csv(out_dir / "target_fit_diagnostics.csv", index=False)
+    if cfg.feature_selection_mode == "per_target_corr":
+        pd.DataFrame(selected_rows, columns=["target", "rank", "block", "feature"]).to_csv(
+            out_dir / "selected_features_per_target.csv.gz",
+            index=False,
+            compression="gzip",
+        )
 
     summary_payload, _ = write_test_outputs(
         out_dir,

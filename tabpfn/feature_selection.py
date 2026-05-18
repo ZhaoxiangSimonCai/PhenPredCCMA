@@ -164,3 +164,75 @@ def fit_feature_selector(
         max_features=max_features,
         min_per_modality=min_per_modality,
     )
+
+
+def fit_variance_only_selector(
+    blocks: Mapping[str, np.ndarray],
+    *,
+    variance_cutoff: float,
+) -> FeatureSelector:
+    """Per-block variance prefilter without quotas, matching cdsr_models' `vc` step.
+
+    Keeps every column with NaN-aware variance > `variance_cutoff`; no top-K
+    truncation and no modality balancing. Intended as the prefilter stage of the
+    `per_target_corr` selection mode.
+    """
+    indices_by_block: Dict[str, np.ndarray] = {}
+    for block_name, x in blocks.items():
+        scores = _nan_variance_score(x)
+        kept = np.flatnonzero(scores > float(variance_cutoff)).astype(np.int64)
+        indices_by_block[block_name] = kept
+
+    total = int(sum(int(v.size) for v in indices_by_block.values()))
+    return FeatureSelector(
+        indices_by_block=indices_by_block,
+        max_features=total,
+        min_per_modality=0,
+        strategy=f"variance_only(vc={float(variance_cutoff):g})",
+    )
+
+
+def select_per_target_corr_indices(
+    x_train: np.ndarray,
+    y_train: np.ndarray,
+    top_n: int,
+) -> np.ndarray:
+    """Top-N feature indices by |Pearson correlation| with y on training rows.
+
+    Matches the per-fold step in `cdsr_models::random_forest`
+    (`rank(-abs(cor(X_train, y))) <= n`). Inputs are assumed to be finite and
+    aligned to the same rows; the caller filters NaNs upstream. Ties are broken
+    by feature index (lexsort), so output is deterministic.
+    """
+    if x_train.ndim != 2:
+        raise ValueError(f"x_train must be 2D, got shape {x_train.shape}")
+    if y_train.ndim != 1:
+        raise ValueError(f"y_train must be 1D, got shape {y_train.shape}")
+    if x_train.shape[0] != y_train.shape[0]:
+        raise ValueError(
+            f"x_train rows ({x_train.shape[0]}) must match y_train length ({y_train.shape[0]})"
+        )
+
+    n_rows, n_cols = int(x_train.shape[0]), int(x_train.shape[1])
+    k = max(0, min(int(top_n), n_cols))
+    if k == 0 or n_rows < 2 or n_cols == 0:
+        return np.zeros((0,), dtype=np.int64)
+
+    x = x_train.astype(np.float64, copy=False)
+    y = y_train.astype(np.float64, copy=False)
+
+    x_centered = x - x.mean(axis=0, keepdims=True)
+    y_centered = y - float(y.mean())
+
+    num = x_centered.T @ y_centered
+    x_ss = np.einsum("ij,ij->j", x_centered, x_centered)
+    y_ss = float(np.dot(y_centered, y_centered))
+    denom = np.sqrt(x_ss * y_ss)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        r = np.where(denom > 1e-12, num / denom, 0.0)
+    abs_r = np.where(np.isfinite(r), np.abs(r), -np.inf)
+
+    idx = np.arange(abs_r.shape[0], dtype=np.int64)
+    order = np.lexsort((idx, -abs_r))
+    return order[:k].astype(np.int64)

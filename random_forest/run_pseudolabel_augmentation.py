@@ -252,7 +252,7 @@ def run_single_experiment(cfg: RunConfig, target_family: str, variant: str) -> P
         f"[final][{target_family}/{variant}] train_n={x_train.shape[0]} test_n={x_test.shape[0]} selected_features={selector.total_selected}",
     )
 
-    pred_test, fit_rows = fit_predict_per_target_rf(
+    pred_test, fit_rows, _ = fit_predict_per_target_rf(
         cfg,
         label=f"final_{target_family}_{variant}",
         target_names=prepared.target_names,

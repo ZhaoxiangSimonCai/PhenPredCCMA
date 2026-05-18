@@ -1,10 +1,12 @@
 # CCMA Experiment Tracker
 
-Last updated: 2026-05-11
+Last updated: 2026-05-18
 
 ## Current Selected Version
 
 Use the **union variant** (`min_views_per_sample=1`, ~425 cell lines) of the copy-number-augmented `feature_augmentation` downstream experiment from MOSA timestamp `20260511_174623`.
+
+2026-05-17 confirmation: the CCMA-paper-style per-target correlation feature-selection follow-up (`reports/*_cnv_mosa_only_union_ftsel/...`, runbook `docs/ccma_runs/feature_selection_experiment.md`) was completed and **not promoted**. TabPFN deltas on the selected combo (`expanded/mosa_all`) were within noise (drug +0.0018, CRISPR −0.0025). RF gains were larger (drug +0.0315, CRISPR +0.0197) but RF is not the selected downstream model. The original block-variance pipeline stays as the selected version.
 
 Selected final model/setting:
 
@@ -120,6 +122,13 @@ These were run or documented, but they are not the current selected version.
 | Standard TabPFN + union CNV MOSA feature augmentation | `reports/tabpfn_cnv_mosa_only_union/feature_augmentation/20260511_174623/` | **Current selected downstream model** | Selected setting is `expanded/mosa_all`. Union variant (`min_views_per_sample=1`). |
 | Random forest + union CNV MOSA feature augmentation | `reports/random_forest_cnv_mosa_only_union/feature_augmentation/20260511_174623/` | **Current comparator** | Used for RF baseline and RF expanded/mosa_all bars in the selected version. |
 | Cross-model + union CNV feature comparison | `reports/model_comparison_cnv_mosa_only_union/feature_augmentation/20260511_174623/` | **Current selected comparison artifact** | Contains the current selected summary and plot. |
+| Standard TabPFN + union CNV MOSA feature augmentation, per-target corr FS | `reports/tabpfn_cnv_mosa_only_union_ftsel/feature_augmentation/20260511_174623/` | Not selected (2026-05-17 follow-up) | CCMA-paper-style `vc=0.01` + top-N=500 per-target Pearson r FS. Selected combo (`expanded/mosa_all`) TabPFN r: drug 0.3498 (Δ +0.0018 vs no-FS baseline), CRISPR 0.2170 (Δ −0.0025). Flat for TabPFN on the selected combo. |
+| Random forest + union CNV MOSA feature augmentation, per-target corr FS | `reports/random_forest_cnv_mosa_only_union_ftsel/feature_augmentation/20260511_174623/` | Not selected (2026-05-17 follow-up) | RF gains from per-target FS more than TabPFN. Selected combo RF r: drug 0.3171 (Δ +0.0315), CRISPR 0.2170 (Δ +0.0197). On `expanded/mosa_all` RF is now essentially tied with TabPFN on CRISPR. |
+| Cross-model + union CNV feature comparison, per-target corr FS | `reports/model_comparison_cnv_mosa_only_union_ftsel/feature_augmentation/20260511_174623/` | Not selected (2026-05-17 follow-up) | Headline summary CSV + aggregate plot for the per-target FS branch. |
+| Standard TabPFN + union CNV MOSA feature augmentation, omics-only + CNV + clinical | `reports/tabpfn_cnv_mosa_only_union_omicsclin/feature_augmentation/20260511_174623/` | Not selected (2026-05-18 follow-up) | New predictor design: drops cross-phenotype (drug↔CRISPR), adds copy number and clinical metadata (age, sex, tumor-class dummies). Selected combo (`expanded/mosa_all`) TabPFN r: drug 0.3473 (Δ −0.0008 vs cross-phenotype baseline 0.3481), CRISPR 0.2126 (Δ −0.0070 vs 0.2195). |
+| Random forest + union CNV MOSA feature augmentation, omics-only + CNV + clinical | `reports/random_forest_cnv_mosa_only_union_omicsclin/feature_augmentation/20260511_174623/` | Not selected (2026-05-18 follow-up) | RF selected combo (`expanded/mosa_all`) r: drug 0.2813 (Δ −0.0043 vs 0.2856), CRISPR 0.1908 (Δ −0.0065 vs 0.1973). |
+| Cross-model + union CNV feature comparison, omics-only + CNV + clinical | `reports/model_comparison_cnv_mosa_only_union_omicsclin/feature_augmentation/20260511_174623/` | Not selected (2026-05-18 follow-up) | Headline summary CSV + aggregate plot for the omicsclin branch. |
+| Figure set, omics-only + CNV + clinical | `reports/cba2026_claude_union_omicsclin/{shap_analysis,prediction_analysis}/20260511_174623/` | Companion to the omicsclin branch | Regenerated via `notebooks/cba2026_claude_union_omicsclin/0?_*.ipynb` plus direct calls to `_pathway_enrichment.run_all()` and `figP12_model_consistency`. Mirrors baseline `reports/cba2026_claude_union/` parity. `fig1_setup_illustration.{png,svg}` not regenerated (hand-drawn). |
 | Standard TabPFN + ≥2 CNV MOSA feature augmentation | `reports/tabpfn_cnv_mosa_only/feature_augmentation/20260505_131645/` | Previous selected downstream model (superseded 2026-05-11) | Same upstream views as union; `min_views_per_sample=2`. |
 | Random forest + ≥2 CNV MOSA feature augmentation | `reports/random_forest_cnv_mosa_only/feature_augmentation/20260505_131645/` | Previous comparator | RF rows for the ≥2 version. |
 | Cross-model + ≥2 CNV feature comparison | `reports/model_comparison_cnv_mosa_only/feature_augmentation/20260505_131645/` | Previous selected comparison artifact | Containing the headline values for the ≥2 variant. |
@@ -135,6 +144,8 @@ Command runbooks:
 
 - CNV runbook: `docs/ccma_runs/cnv_added_mosa_experiment.md`
 - Union variant (≥1 omic) runbook: `docs/ccma_runs/union_variant_experiment.md`
+- Per-target correlation FS runbook (CCMA-paper style): `docs/ccma_runs/feature_selection_experiment.md`
+- Omics-only + CNV + clinical runbook: `docs/ccma_runs/omics_clinical_experiment.md`
 - TabPFN runs: `docs/ccma_runs/tabpfn_experiment_commands.md`
 - Random forest and model comparison: `docs/ccma_runs/random_forest_model_comparison_commands.md`
 
