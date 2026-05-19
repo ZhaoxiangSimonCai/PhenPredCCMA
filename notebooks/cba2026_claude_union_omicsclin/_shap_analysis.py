@@ -38,6 +38,13 @@ from _plot_style import (
     panel_label,
     save_figure,
 )
+from _pathway_enrichment import (
+    SIG_TIERS,
+    _format_term,
+    _load_hallmark,
+    _prerank,
+    _sig_marker,
+)
 
 
 TIMESTAMP = "20260511_174623"
@@ -748,9 +755,9 @@ def fig4_performance_vs_profile(analysis: pd.DataFrame) -> Path:
 
 def fig5_selected_crispr_top_features(
     tables: dict, analysis: pd.DataFrame,
-    requested: tuple[str, ...] = ("TP53", "MDM2", "MDM4"),
+    requested: tuple[str, ...] = ("MDM2", "MDM4"),
     top_n: int = 18,
-    backfill_with_top_gain: bool = True,
+    backfill_with_top_gain: bool = False,
 ) -> tuple[Path, list[str], list[str]]:
     """Top-N SHAP features for each requested CRISPR target.
 
@@ -789,7 +796,11 @@ def fig5_selected_crispr_top_features(
     fig, axes = plt.subplots(1, n_panels, figsize=(fig_w, fig_h))
     if n_panels == 1:
         axes = np.array([axes])
-    fig.subplots_adjust(left=0.11, right=0.98, top=0.86, bottom=0.16, wspace=0.95)
+    # Inter-panel gap accommodates the long y-tick labels (~1 inch). With
+    # fewer panels each panel grows wider, so the ratio needs to shrink to
+    # keep the absolute gap consistent.
+    wspace = 0.55 if n_panels <= 2 else 0.95
+    fig.subplots_adjust(left=0.11, right=0.98, top=0.86, bottom=0.16, wspace=wspace)
 
     layers_present: set[str] = set()
     rows_export: list[pd.DataFrame] = []
@@ -1824,6 +1835,161 @@ def render_all_singles(tables: dict, analysis: pd.DataFrame,
 
 
 # ---------------------------------------------------------------------------
+# Figure 9 — Hallmark GSEA of SHAP feature importance for MDM2 vs MDM4
+# ---------------------------------------------------------------------------
+
+
+_FULL_SHAP_CACHE: dict[str, pd.DataFrame] = {}
+
+
+def _load_full_shap(target_family: str) -> pd.DataFrame:
+    """Load the full mean |SHAP| matrix for ``target_family`` and cache it."""
+    if target_family not in _FULL_SHAP_CACHE:
+        path = shap_paths(target_family)["values"]
+        _FULL_SHAP_CACHE[target_family] = pd.read_csv(path, index_col=0)
+    return _FULL_SHAP_CACHE[target_family]
+
+
+def load_target_shap_ranking(target: str, target_family: str = "crisprcas9",
+                              layer: str = "transcriptomics") -> pd.Series:
+    """Return mean |SHAP| ranking for ``target`` over features in ``layer``.
+
+    The full SHAP matrix has features prefixed by omic layer
+    (e.g. ``transcriptomics_EDA2R``). This filters to one layer, strips the
+    prefix to recover the gene symbol, and returns a Series sorted descending.
+    """
+    shap_df = _load_full_shap(target_family)
+    if target not in shap_df.index:
+        raise KeyError(f"{target} not found in {target_family} SHAP matrix")
+    prefix = f"{layer}_"
+    row = shap_df.loc[target]
+    feats = row.index[row.index.str.startswith(prefix)]
+    series = row.loc[feats]
+    series.index = series.index.str.removeprefix(prefix)
+    series = series.astype(float).dropna()
+    series = series.groupby(series.index).max()
+    return series.sort_values(ascending=False)
+
+
+def _shap_pathway_dotplot(results_by_target: dict[str, pd.DataFrame],
+                           *, top_n: int = 15,
+                           title: str = "Hallmark enrichment of SHAP features"
+                           ) -> plt.Figure:
+    """N-column dot plot of GSEA NES/FDR per target, ranked by sum |NES|."""
+    labels = list(results_by_target.keys())
+    joined = None
+    for label in labels:
+        df = (
+            results_by_target[label]
+            .set_index("term")[["nes", "fdr"]]
+            .add_prefix(f"{label}__")
+        )
+        joined = df if joined is None else joined.join(df, how="outer")
+    assert joined is not None and labels
+
+    nes_cols = [f"{lbl}__nes" for lbl in labels]
+    joined["combined"] = joined[nes_cols].fillna(0).abs().sum(axis=1)
+    joined = joined.sort_values("combined", ascending=False).head(top_n)
+    joined = joined.iloc[::-1]
+
+    n_rows = max(len(joined), 1)
+    fig_h = max(3.2, 0.26 * n_rows + 1.6)
+    fig, ax = plt.subplots(figsize=(4.6, fig_h))
+    fig.subplots_adjust(left=0.40, right=0.80, top=0.92, bottom=0.20)
+    if joined.empty:
+        ax.text(0.5, 0.5, "No enrichment results",
+                ha="center", va="center", transform=ax.transAxes)
+        ax.set_axis_off()
+        return fig
+
+    y = np.arange(len(joined))
+    nes_all = pd.concat([joined[c] for c in nes_cols]).dropna()
+    vmax = max(nes_all.abs().max() if not nes_all.empty else 1.0, 1.0)
+    cmap = plt.cm.RdBu_r
+    norm_n = plt.Normalize(vmin=-vmax, vmax=vmax)
+
+    def _size(fdr: float) -> float:
+        if pd.isna(fdr):
+            return 6.0
+        v = max(-np.log10(max(fdr, 1e-6)), 0.0)
+        return 6.0 + 80.0 * min(v / 3.0, 1.0)
+
+    xs = np.linspace(0.0, len(labels) - 1, len(labels))
+    for col_x, lbl in zip(xs, labels):
+        nes = joined[f"{lbl}__nes"].values
+        fdr = joined[f"{lbl}__fdr"].values
+        for i in range(len(joined)):
+            if pd.isna(nes[i]):
+                ax.scatter(col_x, y[i], s=8, c="white", edgecolors="#cccccc",
+                           linewidth=0.4)
+            else:
+                ax.scatter(col_x, y[i], s=_size(fdr[i]),
+                           c=[cmap(norm_n(nes[i]))],
+                           edgecolors="black", linewidth=0.4)
+
+    ax.set_yticks(y)
+    ax.set_yticklabels([_format_term(t) for t in joined.index])
+    ax.set_xticks(xs)
+    ax.set_xticklabels(labels)
+    ax.set_xlim(-0.5, len(labels) - 0.5)
+    ax.set_ylim(-0.6, len(joined) - 0.4)
+    ax.spines["left"].set_visible(False)
+    ax.tick_params(left=False)
+    ax.set_title(title, loc="left")
+
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm_n)
+    sm.set_array([])
+    cax = fig.add_axes([0.84, 0.40, 0.024, 0.40])
+    cb = fig.colorbar(sm, cax=cax)
+    cb.set_label("NES", fontsize=plt.rcParams["axes.labelsize"] - 1)
+    cb.outline.set_linewidth(0.5)
+    cb.ax.tick_params(width=0.5, length=2.5)
+
+    leg_ax = fig.add_axes([0.40, 0.04, 0.42, 0.08])
+    leg_ax.set_axis_off()
+    legend_x = 0.05
+    for tier, lbl in [(0.05, "FDR<0.05"), (0.1, "FDR<0.1"), (0.25, "FDR<0.25")]:
+        v = -np.log10(tier)
+        leg_ax.scatter(legend_x, 0.5, s=6.0 + 80.0 * min(v / 3.0, 1.0),
+                       c="white", edgecolors="black", linewidth=0.4,
+                       transform=leg_ax.transAxes)
+        leg_ax.text(legend_x + 0.04, 0.5, lbl, va="center",
+                    fontsize=plt.rcParams["font.size"] - 1,
+                    transform=leg_ax.transAxes)
+        legend_x += 0.33
+    return fig
+
+
+def fig9_shap_pathways(targets: tuple[str, ...] = ("MDM2", "MDM4"),
+                       layer: str = "transcriptomics",
+                       target_family: str = "crisprcas9",
+                       top_n: int = 15) -> Path:
+    """Hallmark pre-ranked GSEA on per-target SHAP for ``targets`` and dotplot."""
+    configure_nature_style("composite")
+    pathways = _load_hallmark()
+    print(f"  Loaded {len(pathways)} Hallmark pathways")
+
+    results: dict[str, pd.DataFrame] = {}
+    for tgt in targets:
+        ranking = load_target_shap_ranking(tgt, target_family=target_family,
+                                            layer=layer)
+        print(f"  {tgt}: ranking {len(ranking)} {layer} features for GSEA")
+        res = _prerank(ranking, pathways)
+        results[tgt] = res
+        out_csv = FIG_DIR / f"shap_pathway_gsea_{tgt}.csv"
+        res.to_csv(out_csv, index=False)
+        print(f"  wrote {out_csv.relative_to(ROOT)}")
+
+    fig = _shap_pathway_dotplot(results, top_n=top_n)
+    panel_label(fig.axes[0], "a", offset=(-0.42, 1.04))
+    out = FIG_DIR / "fig9_shap_pathways"
+    save_figure(fig, out)
+    fig2 = _shap_pathway_dotplot(results, top_n=top_n)
+    save_figure(fig2, SINGLE_FIG_DIR / "single_fig9a_shap_pathways")
+    return Path(str(out) + ".pdf")
+
+
+# ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
 
@@ -1841,12 +2007,14 @@ def run_all() -> None:
     fig6 = fig6_selected_crispr_omic_heatmap(analysis, targets=plotted)
     fig7 = fig7_cnv_gain_volcano(analysis)
     fig8 = fig8_shap_concentration(tables)
+    fig9 = fig9_shap_pathways()
 
     write_tables(tables, analysis)
 
     for label, p in [
         ("fig1", fig1), ("fig2", fig2), ("fig3", fig3), ("fig4", fig4),
         ("fig5", fig5), ("fig6", fig6), ("fig7", fig7), ("fig8", fig8),
+        ("fig9", fig9),
     ]:
         print(f"{label}: {p.relative_to(ROOT)}")
     if missing:

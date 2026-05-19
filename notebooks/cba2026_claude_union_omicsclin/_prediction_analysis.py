@@ -394,7 +394,7 @@ def fmt_pvalue(p: float) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Figure P1 — headline performance grid
+# Figures P0 + P1 — headline performance (shared per-target CI helper)
 # ---------------------------------------------------------------------------
 
 
@@ -415,6 +415,115 @@ def _agg_with_ci(per_target_long: pd.DataFrame) -> pd.DataFrame:
             "n_targets": int((~grp["test_pearsonr"].isna()).sum()),
         })
     return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------
+# Figure P0 — single-panel headline summary
+# ---------------------------------------------------------------------------
+
+
+def figP0_headline_summary(per_target_long: pd.DataFrame) -> Path:
+    """One-panel slide view: RF baseline vs TabPFN+MOSA for Drug and CRISPR.
+
+    Two grouped bars (Drug response, CRISPR-Cas9), each contrasting the RF
+    baseline (overlap × original) with TabPFN + MOSA (expanded × mosa_all).
+    Headline text above each group reports "Pearson r X vs Y" and the
+    relative improvement, matching the abstract/slide framing.
+    """
+    configure_nature_style("column")
+    agg = _agg_with_ci(per_target_long)
+
+    families = [("drugresponse", "Drug response"), ("crisprcas9", "CRISPR-Cas9")]
+    bar_w = 0.36
+
+    fig, ax = plt.subplots(figsize=(5.4, 3.8))
+    fig.subplots_adjust(left=0.13, right=0.97, top=0.82, bottom=0.13)
+
+    rf_color = MODEL_COLORS["random_forest"]
+    tp_color = MODEL_COLORS["tabpfn"]
+
+    def _lookup(family, model, frame, variant):
+        row = agg[
+            (agg["target_family"] == family)
+            & (agg["model_name"] == model)
+            & (agg["sample_frame"] == frame)
+            & (agg["variant"] == variant)
+        ]
+        if not len(row):
+            raise ValueError(
+                f"missing aggregate row for {family}/{model}/{frame}/{variant}"
+            )
+        return float(row["mean_r"].iloc[0]), float(row["ci_lo"].iloc[0]), float(row["ci_hi"].iloc[0])
+
+    for group_idx, (family, _label) in enumerate(families):
+        rf_mean, rf_lo, rf_hi = _lookup(
+            family, "random_forest", BASELINE_FRAME, BASELINE_VARIANT,
+        )
+        tp_mean, tp_lo, tp_hi = _lookup(
+            family, "tabpfn", HEADLINE_FRAME, HEADLINE_VARIANT,
+        )
+
+        center = float(group_idx)
+        rf_x = center - bar_w / 2
+        tp_x = center + bar_w / 2
+
+        ax.bar(
+            rf_x, rf_mean, width=bar_w, color=rf_color,
+            edgecolor="black", linewidth=0.45,
+            yerr=np.array([[max(rf_mean - rf_lo, 0)], [max(rf_hi - rf_mean, 0)]]),
+            error_kw=dict(linewidth=0.7, ecolor="#333333", capsize=2.0),
+        )
+        ax.bar(
+            tp_x, tp_mean, width=bar_w, color=tp_color,
+            edgecolor="black", linewidth=0.45,
+            yerr=np.array([[max(tp_mean - tp_lo, 0)], [max(tp_hi - tp_mean, 0)]]),
+            error_kw=dict(linewidth=0.7, ecolor="#333333", capsize=2.0),
+        )
+
+        improvement = (tp_mean - rf_mean) / rf_mean * 100.0
+        line2_y = tp_hi + 0.022
+        line1_y = line2_y + 0.038
+        ax.text(
+            center, line1_y,
+            f"Pearson r  {tp_mean:.2f} vs {rf_mean:.2f}",
+            ha="center", va="bottom",
+            fontsize=plt.rcParams["axes.titlesize"],
+            fontweight="bold",
+        )
+        ax.text(
+            center, line2_y,
+            f"+{improvement:.1f}%  mean improvement",
+            ha="center", va="bottom",
+            color=PALETTE["highlight"],
+            fontsize=plt.rcParams["legend.fontsize"],
+            fontweight="bold",
+        )
+
+    ax.set_xticks([0, 1])
+    ax.set_xticklabels([label for _, label in families])
+    ax.set_ylabel("Mean per-target Pearson r")
+    ax.set_ylim(0, 0.52)
+    ax.grid(axis="y", color="#e5e5e5", linewidth=0.4, zorder=0)
+    ax.set_axisbelow(True)
+
+    ax.legend(
+        handles=[
+            Patch(facecolor=rf_color, edgecolor="black", linewidth=0.4,
+                  label="RF baseline"),
+            Patch(facecolor=tp_color, edgecolor="black", linewidth=0.4,
+                  label="TabPFN + MOSA"),
+        ],
+        loc="upper right", frameon=False, handlelength=1.2,
+    )
+
+    out = FIG_DIR / "figP0_headline_summary"
+    save_figure(fig, out)
+    return Path(str(out) + ".pdf")
+
+
+# ---------------------------------------------------------------------------
+# Figure P1 — headline performance grid (full composite)
+# ---------------------------------------------------------------------------
 
 
 def figP1_headline_grid(summary_long: pd.DataFrame, per_target_long: pd.DataFrame) -> Path:
@@ -983,6 +1092,78 @@ def figP5_top_winners(decomposed: pd.DataFrame, top_n: int = 25) -> Path:
     )
 
     out = FIG_DIR / "figP5_top_winners"
+    save_figure(fig, out)
+    return Path(str(out) + ".pdf")
+
+
+# ---------------------------------------------------------------------------
+# Figure P5b — top absolute predictions per family (delta annotated)
+# ---------------------------------------------------------------------------
+
+
+def _draw_top_predictions(ax, decomposed: pd.DataFrame, family: str, top_n: int = 25) -> None:
+    sub = decomposed[decomposed["target_family"] == family].dropna(
+        subset=["r_rf_orig", "r_tabpfn_mosa_all", "delta_headline"])
+    sub = sub.nlargest(top_n, "r_tabpfn_mosa_all").sort_values("r_tabpfn_mosa_all", ascending=True)
+    yy = np.arange(len(sub))
+    color = FAMILY_COLORS[family]
+    ax.barh(
+        yy, sub["r_tabpfn_mosa_all"], height=0.78,
+        color=color, edgecolor="black", linewidth=0.35,
+        alpha=0.85, label="TabPFN+MOSA Pearson r",
+    )
+    ax.scatter(
+        sub["r_rf_orig"], yy, s=10, color="black", marker="|",
+        linewidth=1.0, zorder=4, label="RF baseline Pearson r",
+    )
+    r_vals = sub["r_tabpfn_mosa_all"].values
+    deltas = sub["delta_headline"].values
+    r_max = float(np.nanmax(r_vals)) if len(r_vals) else 1.0
+    x_pad = 0.012 * max(r_max, 0.1)
+    for y, r, d in zip(yy, r_vals, deltas):
+        sign = "+" if d >= 0 else "−"
+        ax.text(
+            r + x_pad, y,
+            f"{sign}{abs(d):.2f}",
+            va="center", ha="left",
+            fontsize=plt.rcParams["ytick.labelsize"] - 1.0,
+            color="#333333", clip_on=False,
+        )
+    ax.axvline(0, color="#888888", linewidth=0.6, linestyle="--", zorder=0)
+    ax.set_yticks(yy)
+    ax.set_yticklabels(sub["target_name"].values, fontsize=plt.rcParams["ytick.labelsize"] - 0.5)
+    ax.set_xlabel("Pearson r (bar); ΔPearson r vs RF annotated")
+    ax.set_title(f"{FAMILY_DISPLAY[family]} — top {top_n} TabPFN+MOSA predictions")
+    ax.tick_params(axis="y", length=0, pad=2)
+    ax.set_ylim(-0.6, len(sub) - 0.4)
+    ax.grid(axis="x", color="#e5e5e5", linewidth=0.4, zorder=0)
+    ax.set_axisbelow(True)
+    cur_xmin, cur_xmax = ax.get_xlim()
+    ax.set_xlim(cur_xmin, cur_xmax + 0.18 * (cur_xmax - cur_xmin))
+
+
+def figP5b_top_predictions(decomposed: pd.DataFrame, top_n: int = 25) -> Path:
+    configure_nature_style("composite")
+    fig, axes = plt.subplots(1, 2, figsize=(7.6, 6.4))
+    fig.subplots_adjust(left=0.13, right=0.985, top=0.93, bottom=0.16, wspace=0.55)
+    for ax, family, letter in zip(axes, FAMILY_ORDER, ["a", "b"]):
+        _draw_top_predictions(ax, decomposed, family, top_n=top_n)
+        panel_label(ax, letter, offset=(-0.40, 1.04))
+
+    fig.legend(
+        handles=[
+            Line2D([0], [0], color="black", marker="|", linestyle="none",
+                   markersize=8, markeredgewidth=1.4, label="RF baseline r"),
+            Patch(facecolor=PALETTE["new"], edgecolor="black", linewidth=0.35,
+                  alpha=0.85, label="TabPFN+MOSA r (CRISPR)"),
+            Patch(facecolor=PALETTE["lost"], edgecolor="black", linewidth=0.35,
+                  alpha=0.85, label="TabPFN+MOSA r (drug)"),
+        ],
+        loc="lower center", ncol=3, bbox_to_anchor=(0.5, 0.01),
+        frameon=False, handlelength=1.4, handletextpad=0.6, columnspacing=2.0,
+    )
+
+    out = FIG_DIR / "figP5b_top_predictions"
     save_figure(fig, out)
     return Path(str(out) + ".pdf")
 
@@ -2044,6 +2225,22 @@ def single_figP5_top_winners_drug(decomposed: pd.DataFrame) -> Path:
     return _save_single(fig, "single_figP5_top_winners_drug")
 
 
+def single_figP5b_top_predictions_crispr(decomposed: pd.DataFrame) -> Path:
+    configure_nature_style("column")
+    fig, ax = plt.subplots(figsize=(4.6, 6.4))
+    fig.subplots_adjust(left=0.32, right=0.93, top=0.93, bottom=0.10)
+    _draw_top_predictions(ax, decomposed, "crisprcas9", top_n=25)
+    return _save_single(fig, "single_figP5b_top_predictions_crispr")
+
+
+def single_figP5b_top_predictions_drug(decomposed: pd.DataFrame) -> Path:
+    configure_nature_style("column")
+    fig, ax = plt.subplots(figsize=(4.6, 6.4))
+    fig.subplots_adjust(left=0.32, right=0.93, top=0.93, bottom=0.10)
+    _draw_top_predictions(ax, decomposed, "drugresponse", top_n=25)
+    return _save_single(fig, "single_figP5b_top_predictions_drug")
+
+
 def render_singles_figP6_per_target(
     decomposed: pd.DataFrame,
     selected: dict[str, list[str]],
@@ -2229,6 +2426,8 @@ def render_all_singles(summary_long: pd.DataFrame,
         single_figP4b_heatmap_drug(summary_long),
         single_figP5_top_winners_crispr(decomposed),
         single_figP5_top_winners_drug(decomposed),
+        single_figP5b_top_predictions_crispr(decomposed),
+        single_figP5b_top_predictions_drug(decomposed),
     ]
     paths.extend(render_singles_figP6_per_target(decomposed, selected_targets))
     paths.extend([
@@ -2254,11 +2453,13 @@ def run_all() -> None:
     per_target_long = load_per_target_long()
     decomposed = load_decomposed()
 
+    p0 = figP0_headline_summary(per_target_long)
     p1 = figP1_headline_grid(summary_long, per_target_long)
     p2 = figP2_paired_scatter(decomposed)
     p3 = figP3_decomposition(decomposed)
     p4 = figP4_strategy_frame(summary_long)
     p5 = figP5_top_winners(decomposed)
+    p5b = figP5b_top_predictions(decomposed)
     p6, selected = figP6_target_deepdives(decomposed)
     p7 = figP7_helps_most(decomposed)
     p8 = figP8_strategy_per_target(decomposed)
@@ -2277,8 +2478,8 @@ def run_all() -> None:
     )
 
     for label, p in [
-        ("figP1", p1), ("figP2", p2), ("figP3", p3), ("figP4", p4),
-        ("figP5", p5), ("figP6", p6), ("figP7", p7), ("figP8", p8),
+        ("figP0", p0), ("figP1", p1), ("figP2", p2), ("figP3", p3), ("figP4", p4),
+        ("figP5", p5), ("figP5b", p5b), ("figP6", p6), ("figP7", p7), ("figP8", p8),
         ("figP9", p9), ("figP10", p10), ("figP11", p11), ("figP12", p12),
     ]:
         if p is not None:
