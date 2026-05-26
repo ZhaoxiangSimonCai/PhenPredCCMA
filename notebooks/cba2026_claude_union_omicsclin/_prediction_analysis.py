@@ -1373,9 +1373,9 @@ def figP7_helps_most(decomposed: pd.DataFrame) -> Path:
     # Per-family bootstrap mean Δ — summary view of the levers.
     levers = [
         ("RF: original → MOSA", "delta_mosa_at_rf"),
-        ("TabPFN: original → MOSA", "delta_mosa_at_tabpfn"),
         ("RF → TabPFN, original", "delta_model_at_orig"),
         ("RF → TabPFN, MOSA", "delta_model_at_mosa_all"),
+        ("TabPFN: original → MOSA", "delta_mosa_at_tabpfn"),
     ]
     pos = 0
     ticks, labels = [], []
@@ -2274,9 +2274,9 @@ def single_figP7d_lever_summary(decomposed: pd.DataFrame) -> Path:
     fig.subplots_adjust(left=0.16, right=0.97, top=0.88, bottom=0.30)
     levers = [
         ("RF: original → MOSA", "delta_mosa_at_rf"),
-        ("TabPFN: original → MOSA", "delta_mosa_at_tabpfn"),
         ("RF → TabPFN, original", "delta_model_at_orig"),
         ("RF → TabPFN, MOSA", "delta_model_at_mosa_all"),
+        ("TabPFN: original → MOSA", "delta_mosa_at_tabpfn"),
     ]
     pos = 0
     bar_w = 0.35
@@ -2302,7 +2302,7 @@ def single_figP7d_lever_summary(decomposed: pd.DataFrame) -> Path:
     ax.axhline(0, color="#888888", linewidth=0.6, linestyle="--")
     ax.set_ylabel("Mean ΔPearson r")
     ax.set_title("Lever summary (95 % bootstrap CI)")
-    ax.legend(frameon=False, handlelength=1.2, loc="best")
+    ax.legend(frameon=False, handlelength=1.2, loc="upper left")
     ax.grid(axis="y", color="#e5e5e5", linewidth=0.4, zorder=0)
     ax.set_axisbelow(True)
     return _save_single(fig, "single_figP7d_lever_summary")
