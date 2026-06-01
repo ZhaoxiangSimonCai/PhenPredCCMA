@@ -134,9 +134,9 @@ Composites at `reports/cba2026_claude/prediction_analysis/<TIMESTAMP>/`. Single-
 
 ## Visual conventions
 
-- **Focus / reference framing**: CRISPR-Cas9 in deep blue (`PALETTE["new"]`), drug response in orange (`PALETTE["lost"]`). Brick-red (`PALETTE["highlight"]`) for significance markers and outlined points only.
+- **Focus / reference framing**: CRISPR-Cas12 in deep blue (`PALETTE["new"]`), drug response in orange (`PALETTE["lost"]`). Brick-red (`PALETTE["highlight"]`) for significance markers and outlined points only.
 - **Per-omic-layer colour mapping** (used wherever multiple layers are shown together):
-  transcriptomics — Okabe blue · methylation — green · drug response — vermillion · CRISPR-Cas9 — pink · conditionals — grey · copy number — orange.
+  transcriptomics — Okabe blue · methylation — green · drug response — vermillion · CRISPR-Cas12 — pink · conditionals — grey · copy number — orange.
 - **Legends** are placed outside the data area when they would otherwise land on it (Fig 1, Fig 2, Fig 5).
 - **Callout columns** (Fig 7) keep all annotation text out of the scatter cloud — labels stack at evenly-spaced axes-relative positions and connect to markers via thin leader lines.
 - **Rasterisation** is enabled on every dense scatter (Figs 4, 7) so PDFs stay small while text remains vector-editable.

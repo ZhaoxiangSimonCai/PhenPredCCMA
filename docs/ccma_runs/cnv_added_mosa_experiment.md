@@ -197,7 +197,7 @@ Quick comparison against the previous non-CNV selected run `20260313_162348`:
 | Target family | Previous selected r | +CNV selected r | Delta |
 | --- | ---: | ---: | ---: |
 | Drug Response | 0.3231 | 0.3194 | -0.0037 |
-| CRISPR-Cas9 | 0.2139 | 0.2124 | -0.0015 |
+| CRISPR-Cas12 | 0.2139 | 0.2124 | -0.0015 |
 
 
 Useful extraction command after comparison:
@@ -240,7 +240,7 @@ ls -lh reports/vae/files/${TS}_imputed_copynumber.csv.gz
 
 Current status before this stage: no `${TS}_shap_*` outputs were present under `reports/vae/files/`, so SHAP still needs to be generated for the selected +CNV run.
 
-CRISPR-Cas9 SHAP:
+CRISPR-Cas12 SHAP:
 
 ```bash
 LOG="docs/ccma_runs/logs/run_ccma_shap_${TS}_crisprcas9_$(date +%Y%m%d_%H%M%S).log"
@@ -285,7 +285,7 @@ If memory becomes limiting, rerun the same target with explicit chunking or a sm
   --seed 42
 ```
 
-The current runner writes aggregate mean-absolute SHAP outputs with a `_mean_abs` suffix. Check CRISPR-Cas9 outputs:
+The current runner writes aggregate mean-absolute SHAP outputs with a `_mean_abs` suffix. Check CRISPR-Cas12 outputs:
 
 ```bash
 ls -lh reports/vae/files/${TS}_shap_values_crisprcas9_mean_abs.csv.gz
@@ -307,7 +307,7 @@ ls -lh reports/vae/${TS}_shap_omic_ranking_drugresponse_mean_abs.png
 ls -lh reports/vae/${TS}_shap_omic_ranking_drugresponse_mean_abs.pdf
 ```
 
-After the CRISPR-Cas9 outputs exist, open the existing notebook and set the timestamp to the selected +CNV run:
+After the CRISPR-Cas12 outputs exist, open the existing notebook and set the timestamp to the selected +CNV run:
 
 ```bash
 jupyter lab notebooks/shap_analysis_ccma_crispr.ipynb

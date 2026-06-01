@@ -19,7 +19,7 @@ Selected final model/setting:
 - Downstream predictor blocks: unchanged from the selected non-CNV workflow; CNV is used through MOSA imputation, not as a direct downstream predictor block
 - Baseline used in the final comparison: random forest `overlap` / `original`
 - Metric reported in the final figure: per-target macro mean Pearson r
-- Target panel: 500 drug-response targets and 500 CRISPR-Cas9 targets
+- Target panel: 500 drug-response targets and 500 CRISPR-Cas12 targets
 - Selected feature count: 2000
 - Seed: 42
 
@@ -48,14 +48,14 @@ These are the headline values for the selected union variant (≥1 omic). The "P
 | Target family | RF overlap/original baseline | RF expanded/mosa_all | TabPFN overlap/original | Selected TabPFN expanded/mosa_all | Selected gain vs RF baseline | Per-target improvement vs RF baseline | Previous selected TabPFN r | Delta vs previous |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Drug Response | 0.2346 | 0.2856 | 0.2207 | 0.3481 | +0.1135 (+48.4%) | 74.4% improved; median delta r = 0.1145 | 0.3194 | +0.0287 |
-| CRISPR-Cas9 | 0.1510 | 0.1973 | 0.1436 | 0.2195 | +0.0685 (+45.4%) | 65.2% improved; median delta r = 0.0675 | 0.2124 | +0.0071 |
+| CRISPR-Cas12 | 0.1510 | 0.1973 | 0.1436 | 0.2195 | +0.0685 (+45.4%) | 65.2% improved; median delta r = 0.0675 | 0.2124 | +0.0071 |
 
 Selected TabPFN run details:
 
 | Target family | Train n | Test n | Targets | Test observations | Test Pearson r | Test R2 | Test RMSE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Drug Response | 244 | 24 | 500 | 11951 | 0.3481 | 0.0513 | 0.1672 |
-| CRISPR-Cas9 | 140 | 24 | 500 | 11932 | 0.2195 | 0.0024 | 0.6472 |
+| CRISPR-Cas12 | 140 | 24 | 500 | 11932 | 0.2195 | 0.0024 | 0.6472 |
 
 ## Copy Number / CNV Status
 
@@ -86,7 +86,7 @@ Encoding used:
 The selected downstream feature-augmentation configs still use the same direct predictor blocks as the previous selected run:
 
 - Drug Response predictors: `transcriptomics`, `methylation`, `crisprcas9`, `mutations`
-- CRISPR-Cas9 predictors: `transcriptomics`, `methylation`, `drugresponse`, `mutations`
+- CRISPR-Cas12 predictors: `transcriptomics`, `methylation`, `drugresponse`, `mutations`
 
 So CNV enters the selected workflow through MOSA's learned/imputed views, not as a direct TabPFN/RF raw predictor.
 
@@ -107,11 +107,11 @@ Previous selected values:
 | Target family | Selected TabPFN expanded/mosa_all r | RF overlap/original baseline | Notes |
 | --- | ---: | ---: | --- |
 | Drug Response | 0.3194 | 0.2346 | Same upstream views as the union variant; differs only in `min_views_per_sample=2` (vs 1). Train n=232 (vs 244 under union). |
-| CRISPR-Cas9 | 0.2124 | 0.1510 | Same upstream views as the union variant; train n=132 (vs 140 under union). |
+| CRISPR-Cas12 | 0.2124 | 0.1510 | Same upstream views as the union variant; train n=132 (vs 140 under union). |
 
 That upstream MOSA config used `crisprcas9`, `drugresponse`, `transcriptomics`, `methylation`, and `copynumber`, with `mutations` as labels/conditionals — identical to the current selected union variant. Promotion to the union variant on 2026-05-11 was driven by the +0.0287 (drug) and +0.0071 (CRISPR) Pearson r improvements at `expanded/mosa_all`.
 
-Earlier non-CNV selected version (chronologically older): MOSA `20260313_162348`. Selected TabPFN `expanded/mosa_all` r: drug response `0.3231`, CRISPR-Cas9 `0.2139`. Artifacts under `reports/{vae/files,tabpfn,random_forest,model_comparison}/.../20260313_162348/`. That upstream config used four views (no `copynumber`).
+Earlier non-CNV selected version (chronologically older): MOSA `20260313_162348`. Selected TabPFN `expanded/mosa_all` r: drug response `0.3231`, CRISPR-Cas12 `0.2139`. Artifacts under `reports/{vae/files,tabpfn,random_forest,model_comparison}/.../20260313_162348/`. That upstream config used four views (no `copynumber`).
 
 ## Other Experiment Branches
 

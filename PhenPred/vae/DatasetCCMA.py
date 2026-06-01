@@ -126,7 +126,7 @@ class CLinesDatasetCCMA(Dataset):
             phosphoproteomics="Phosphoproteomics",
             metabolomics="Metabolomics",
             drugresponse="Drug response",
-            crisprcas9="CRISPR-Cas9",
+            crisprcas9="CRISPR-Cas12",
             growth="Growth",
         )
 

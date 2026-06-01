@@ -50,7 +50,7 @@ TIMESTAMP = "20260511_174623"
 OLDER_TIMESTAMP = "20260313_162348"   # no-CNV reference run for Fig P11
 
 FAMILY_ORDER = ["crisprcas9", "drugresponse"]
-FAMILY_DISPLAY = {"crisprcas9": "CRISPR-Cas9", "drugresponse": "Drug response"}
+FAMILY_DISPLAY = {"crisprcas9": "CRISPR-Cas12", "drugresponse": "Drug response"}
 
 VARIANT_ORDER = ["original", "mosa_nan_only", "mosa_all"]
 VARIANT_DISPLAY = {
@@ -102,7 +102,7 @@ OMIC_DISPLAY = {
     "transcriptomics": "Transcriptomics",
     "methylation": "Methylation",
     "drugresponse": "Drug response",
-    "crisprcas9": "CRISPR-Cas9",
+    "crisprcas9": "CRISPR-Cas12",
     "copynumber": "Copy number",
     "conditionals": "Conditionals",
 }
@@ -1110,7 +1110,7 @@ def figP6_target_deepdives(decomposed: pd.DataFrame,
             Line2D([0], [0], marker="o", linestyle="none", color=PALETTE["common"],
                    markersize=5, markeredgewidth=0, label="RF baseline (overlap × original)"),
             Line2D([0], [0], marker="o", linestyle="none", color=PALETTE["new"],
-                   markersize=5, markeredgewidth=0, label="TabPFN+MOSA (CRISPR-Cas9)"),
+                   markersize=5, markeredgewidth=0, label="TabPFN+MOSA (CRISPR-Cas12)"),
             Line2D([0], [0], marker="o", linestyle="none", color=PALETTE["lost"],
                    markersize=5, markeredgewidth=0, label="TabPFN+MOSA (drug response)"),
         ],
@@ -1226,7 +1226,7 @@ def figP7_helps_most(decomposed: pd.DataFrame) -> Path:
     fig.legend(
         handles=[
             Patch(facecolor=FAMILY_COLORS["crisprcas9"], edgecolor="black",
-                  linewidth=0.4, label="CRISPR-Cas9"),
+                  linewidth=0.4, label="CRISPR-Cas12"),
             Patch(facecolor=FAMILY_COLORS["drugresponse"], edgecolor="black",
                   linewidth=0.4, label="Drug response"),
         ],

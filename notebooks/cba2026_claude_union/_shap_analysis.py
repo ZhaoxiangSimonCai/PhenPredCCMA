@@ -1,6 +1,6 @@
 """CBA 2026 SHAP analysis — publication-quality figure generators.
 
-Loads the CRISPR-Cas9 and drug-response SHAP exports for the selected +CNV
+Loads the CRISPR-Cas12 and drug-response SHAP exports for the selected +CNV
 MOSA *union variant* run (``20260511_174623``, ``min_views_per_sample=1``) and
 produces every figure and table consumed by the two ``cba2026_claude_union``
 notebooks.
@@ -43,7 +43,7 @@ from _plot_style import (
 TIMESTAMP = "20260511_174623"
 
 TARGET_META = {
-    "crisprcas9": "CRISPR-Cas9",
+    "crisprcas9": "CRISPR-Cas12",
     "drugresponse": "Drug response",
 }
 
@@ -59,7 +59,7 @@ OMIC_DISPLAY = {
     "transcriptomics": "Transcriptomics",
     "methylation": "Methylation",
     "drugresponse": "Drug response",
-    "crisprcas9": "CRISPR-Cas9",
+    "crisprcas9": "CRISPR-Cas12",
     "conditionals": "Conditionals",
     "copynumber": "Copy number",
 }
@@ -72,7 +72,7 @@ OMIC_COLORS = {
     "copynumber": "#E69F00",
 }
 TARGET_COLORS = {
-    "CRISPR-Cas9": PALETTE["new"],
+    "CRISPR-Cas12": PALETTE["new"],
     "Drug response": PALETTE["lost"],
 }
 
@@ -323,7 +323,7 @@ def fig1_global_landscape(tables: dict) -> Path:
     """Two-row composite:
     (a) absolute SHAP per omic layer × family,
     (b) within-family share per omic layer,
-    (c) top-25 global features for CRISPR-Cas9,
+    (c) top-25 global features for CRISPR-Cas12,
     (d) top-25 global features for drug response.
     """
     configure_nature_style("composite")
@@ -349,7 +349,7 @@ def fig1_global_landscape(tables: dict) -> Path:
     y = np.arange(len(layers))
     bar_h = 0.36
     for offset, fam_label, color in [
-        (-bar_h / 2, "CRISPR-Cas9", TARGET_COLORS["CRISPR-Cas9"]),
+        (-bar_h / 2, "CRISPR-Cas12", TARGET_COLORS["CRISPR-Cas12"]),
         (bar_h / 2, "Drug response", TARGET_COLORS["Drug response"]),
     ]:
         d = omic[omic["target_label"] == fam_label].set_index("omic_layer").reindex(layers)
@@ -373,7 +373,7 @@ def fig1_global_landscape(tables: dict) -> Path:
 
     # ---- (b) within-family share ------------------------------------------
     for offset, fam_label, color in [
-        (-bar_h / 2, "CRISPR-Cas9", TARGET_COLORS["CRISPR-Cas9"]),
+        (-bar_h / 2, "CRISPR-Cas12", TARGET_COLORS["CRISPR-Cas12"]),
         (bar_h / 2, "Drug response", TARGET_COLORS["Drug response"]),
     ]:
         d = omic[omic["target_label"] == fam_label].set_index("omic_layer").reindex(layers)
@@ -469,7 +469,7 @@ def fig2_global_feature_heatmap(tables: dict, top_per_family: int = 25) -> Path:
     )
     wide["max_importance"] = wide.max(axis=1)
     wide = wide.sort_values("max_importance", ascending=False).head(40).drop(columns="max_importance")
-    wide = wide[["CRISPR-Cas9", "Drug response"]]
+    wide = wide[["CRISPR-Cas12", "Drug response"]]
     plot_mat = wide.copy() * 1e3   # display in ×10⁻³ units
 
     fig_height = max(4.8, 0.20 * len(plot_mat) + 1.4)
@@ -662,7 +662,7 @@ def fig4_performance_vs_profile(analysis: pd.DataFrame) -> Path:
         ax2.scatter(
             sub["share_copynumber"], sub["test_pearsonr_tabpfn"],
             s=10, color=color,
-            alpha=SCATTER_ALPHA["new"] if label == "CRISPR-Cas9" else SCATTER_ALPHA["lost"],
+            alpha=SCATTER_ALPHA["new"] if label == "CRISPR-Cas12" else SCATTER_ALPHA["lost"],
             linewidths=0, label=label, rasterized=True,
         )
     ax2.set_xlabel("Copy-number share of top-200 SHAP")
@@ -679,7 +679,7 @@ def fig4_performance_vs_profile(analysis: pd.DataFrame) -> Path:
         ax3.scatter(
             sub["omic_entropy"], sub["delta_pearsonr_vs_rf"],
             s=10, color=color,
-            alpha=SCATTER_ALPHA["new"] if label == "CRISPR-Cas9" else SCATTER_ALPHA["lost"],
+            alpha=SCATTER_ALPHA["new"] if label == "CRISPR-Cas12" else SCATTER_ALPHA["lost"],
             linewidths=0, label=label, rasterized=True,
         )
     ax3.axhline(0, color="black", linewidth=0.6, linestyle="--", alpha=0.6)
@@ -693,7 +693,7 @@ def fig4_performance_vs_profile(analysis: pd.DataFrame) -> Path:
     bar_pos = np.arange(len(layers))
     width = 0.36
     for offset, label, color in [
-        (-width / 2, "CRISPR-Cas9", TARGET_COLORS["CRISPR-Cas9"]),
+        (-width / 2, "CRISPR-Cas12", TARGET_COLORS["CRISPR-Cas12"]),
         (width / 2, "Drug response", TARGET_COLORS["Drug response"]),
     ]:
         positions = bar_pos + offset
@@ -727,8 +727,8 @@ def fig4_performance_vs_profile(analysis: pd.DataFrame) -> Path:
     ax4.set_axisbelow(True)
 
     handles = [
-        Patch(facecolor=TARGET_COLORS["CRISPR-Cas9"], alpha=0.6,
-              edgecolor="black", linewidth=0.5, label="CRISPR-Cas9"),
+        Patch(facecolor=TARGET_COLORS["CRISPR-Cas12"], alpha=0.6,
+              edgecolor="black", linewidth=0.5, label="CRISPR-Cas12"),
         Patch(facecolor=TARGET_COLORS["Drug response"], alpha=0.6,
               edgecolor="black", linewidth=0.5, label="Drug response"),
     ]
@@ -1001,7 +1001,7 @@ def fig7_cnv_gain_volcano(analysis: pd.DataFrame, label_top: int = 10) -> Path:
     )
     fig.subplots_adjust(left=0.09, right=0.99, top=0.88, bottom=0.18, wspace=0.10)
 
-    label_color = {"CRISPR-Cas9": TARGET_COLORS["CRISPR-Cas9"],
+    label_color = {"CRISPR-Cas12": TARGET_COLORS["CRISPR-Cas12"],
                    "Drug response": TARGET_COLORS["Drug response"]}
 
     for ax, (fam, label), letter in zip(axes, TARGET_META.items(), ["a", "b"]):
@@ -1017,7 +1017,7 @@ def fig7_cnv_gain_volcano(analysis: pd.DataFrame, label_top: int = 10) -> Path:
         ax.scatter(
             sub["share_copynumber"], sub["delta_pearsonr_vs_rf"],
             s=14, color=label_color[label],
-            alpha=SCATTER_ALPHA["new"] if label == "CRISPR-Cas9" else SCATTER_ALPHA["lost"],
+            alpha=SCATTER_ALPHA["new"] if label == "CRISPR-Cas12" else SCATTER_ALPHA["lost"],
             linewidths=0, rasterized=True,
         )
         winners = sub.nlargest(label_top, "delta_pearsonr_vs_rf")
@@ -1240,7 +1240,7 @@ def _draw_omic_paired_bars(
     y = np.arange(len(layers))
     bar_h = 0.36
     for offset, fam_label, color in [
-        (-bar_h / 2, "CRISPR-Cas9", TARGET_COLORS["CRISPR-Cas9"]),
+        (-bar_h / 2, "CRISPR-Cas12", TARGET_COLORS["CRISPR-Cas12"]),
         (bar_h / 2, "Drug response", TARGET_COLORS["Drug response"]),
     ]:
         d = omic[omic["target_label"] == fam_label].set_index("omic_layer").reindex(layers)
@@ -1328,7 +1328,7 @@ def _single_top_features_panel(tables: dict, family: str, label: str, stem: str)
 
 def single_fig1c_top_features_crispr(tables: dict) -> Path:
     return _single_top_features_panel(
-        tables, "crisprcas9", "CRISPR-Cas9",
+        tables, "crisprcas9", "CRISPR-Cas12",
         "single_fig1c_top_features_crispr",
     )
 
@@ -1358,7 +1358,7 @@ def single_fig2_global_feature_heatmap(tables: dict, top_per_family: int = 25) -
     )
     wide["max_importance"] = wide.max(axis=1)
     wide = wide.sort_values("max_importance", ascending=False).head(40).drop(columns="max_importance")
-    wide = wide[["CRISPR-Cas9", "Drug response"]]
+    wide = wide[["CRISPR-Cas12", "Drug response"]]
     plot_mat = wide.copy() * 1e3
 
     configure_nature_style("column")
@@ -1452,7 +1452,7 @@ def _single_omic_composition(tables: dict, family: str, label: str, stem: str) -
 
 
 def single_fig3a_composition_crispr(tables: dict) -> Path:
-    return _single_omic_composition(tables, "crisprcas9", "CRISPR-Cas9",
+    return _single_omic_composition(tables, "crisprcas9", "CRISPR-Cas12",
                                      "single_fig3a_composition_crispr")
 
 
@@ -1491,7 +1491,7 @@ def single_fig4b_cnv_share_scatter(analysis: pd.DataFrame) -> Path:
         ax.scatter(
             sub["share_copynumber"], sub["test_pearsonr_tabpfn"],
             s=12, color=color,
-            alpha=SCATTER_ALPHA["new"] if label == "CRISPR-Cas9" else SCATTER_ALPHA["lost"],
+            alpha=SCATTER_ALPHA["new"] if label == "CRISPR-Cas12" else SCATTER_ALPHA["lost"],
             linewidths=0, label=label, rasterized=True,
         )
     ax.set_xlabel("Copy-number share of top-200 SHAP")
@@ -1512,7 +1512,7 @@ def single_fig4c_entropy_gain_scatter(analysis: pd.DataFrame) -> Path:
         ax.scatter(
             sub["omic_entropy"], sub["delta_pearsonr_vs_rf"],
             s=12, color=color,
-            alpha=SCATTER_ALPHA["new"] if label == "CRISPR-Cas9" else SCATTER_ALPHA["lost"],
+            alpha=SCATTER_ALPHA["new"] if label == "CRISPR-Cas12" else SCATTER_ALPHA["lost"],
             linewidths=0, label=label, rasterized=True,
         )
     ax.axhline(0, color="black", linewidth=0.6, linestyle="--", alpha=0.6)
@@ -1532,7 +1532,7 @@ def single_fig4d_dominant_omic_box(analysis: pd.DataFrame) -> Path:
     bar_pos = np.arange(len(layers))
     width = 0.36
     for offset, label, color in [
-        (-width / 2, "CRISPR-Cas9", TARGET_COLORS["CRISPR-Cas9"]),
+        (-width / 2, "CRISPR-Cas12", TARGET_COLORS["CRISPR-Cas12"]),
         (width / 2, "Drug response", TARGET_COLORS["Drug response"]),
     ]:
         positions = bar_pos + offset
@@ -1565,8 +1565,8 @@ def single_fig4d_dominant_omic_box(analysis: pd.DataFrame) -> Path:
     ax.grid(axis="y", color="#e5e5e5", linewidth=0.4, zorder=0)
     ax.set_axisbelow(True)
     handles = [
-        Patch(facecolor=TARGET_COLORS["CRISPR-Cas9"], alpha=0.6,
-              edgecolor="black", linewidth=0.5, label="CRISPR-Cas9"),
+        Patch(facecolor=TARGET_COLORS["CRISPR-Cas12"], alpha=0.6,
+              edgecolor="black", linewidth=0.5, label="CRISPR-Cas12"),
         Patch(facecolor=TARGET_COLORS["Drug response"], alpha=0.6,
               edgecolor="black", linewidth=0.5, label="Drug response"),
     ]
@@ -1679,7 +1679,7 @@ def _draw_volcano_panel(ax, sub: pd.DataFrame, label: str, label_top: int) -> No
     ax.scatter(
         sub["share_copynumber"], sub["delta_pearsonr_vs_rf"],
         s=14, color=color,
-        alpha=SCATTER_ALPHA["new"] if label == "CRISPR-Cas9" else SCATTER_ALPHA["lost"],
+        alpha=SCATTER_ALPHA["new"] if label == "CRISPR-Cas12" else SCATTER_ALPHA["lost"],
         linewidths=0, rasterized=True,
     )
     winners = sub.nlargest(label_top, "delta_pearsonr_vs_rf")
@@ -1724,7 +1724,7 @@ def _single_volcano(analysis: pd.DataFrame, family: str, label: str, stem: str,
 
 
 def single_fig7a_volcano_crispr(analysis: pd.DataFrame) -> Path:
-    return _single_volcano(analysis, "crisprcas9", "CRISPR-Cas9",
+    return _single_volcano(analysis, "crisprcas9", "CRISPR-Cas12",
                             "single_fig7a_volcano_crispr")
 
 
@@ -1787,7 +1787,7 @@ def _single_concentration(tables: dict, family: str, label: str, stem: str) -> P
 
 
 def single_fig8a_concentration_crispr(tables: dict) -> Path:
-    return _single_concentration(tables, "crisprcas9", "CRISPR-Cas9",
+    return _single_concentration(tables, "crisprcas9", "CRISPR-Cas12",
                                   "single_fig8a_concentration_crispr")
 
 

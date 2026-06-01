@@ -50,7 +50,7 @@ TIMESTAMP = "20260511_174623"
 OLDER_TIMESTAMP = "20260313_162348"   # no-CNV reference run for Fig P11
 
 FAMILY_ORDER = ["crisprcas9", "drugresponse"]
-FAMILY_DISPLAY = {"crisprcas9": "CRISPR-Cas9", "drugresponse": "Drug response"}
+FAMILY_DISPLAY = {"crisprcas9": "CRISPR-Cas12", "drugresponse": "Drug response"}
 
 VARIANT_ORDER = ["original", "mosa_nan_only", "mosa_all"]
 VARIANT_DISPLAY = {
@@ -102,7 +102,7 @@ OMIC_DISPLAY = {
     "transcriptomics": "Transcriptomics",
     "methylation": "Methylation",
     "drugresponse": "Drug response",
-    "crisprcas9": "CRISPR-Cas9",
+    "crisprcas9": "CRISPR-Cas12",
     "copynumber": "Copy number",
     "conditionals": "Conditionals",
 }
@@ -425,7 +425,7 @@ def _agg_with_ci(per_target_long: pd.DataFrame) -> pd.DataFrame:
 def figP0_headline_summary(per_target_long: pd.DataFrame) -> Path:
     """One-panel slide view: RF baseline vs TabPFN+MOSA for Drug and CRISPR.
 
-    Two grouped bars (Drug response, CRISPR-Cas9), each contrasting the RF
+    Two grouped bars (Drug response, CRISPR-Cas12), each contrasting the RF
     baseline (overlap × original) with TabPFN + MOSA (expanded × mosa_all).
     Headline text above each group reports "Pearson r X vs Y" and the
     relative improvement, matching the abstract/slide framing.
@@ -433,7 +433,7 @@ def figP0_headline_summary(per_target_long: pd.DataFrame) -> Path:
     configure_nature_style("column")
     agg = _agg_with_ci(per_target_long)
 
-    families = [("drugresponse", "Drug response"), ("crisprcas9", "CRISPR-Cas9")]
+    families = [("drugresponse", "Drug response"), ("crisprcas9", "CRISPR-Cas12")]
     bar_w = 0.36
 
     fig, ax = plt.subplots(figsize=(5.4, 3.8))
@@ -1291,7 +1291,7 @@ def figP6_target_deepdives(decomposed: pd.DataFrame,
             Line2D([0], [0], marker="o", linestyle="none", color=PALETTE["common"],
                    markersize=5, markeredgewidth=0, label="RF baseline (overlap × original)"),
             Line2D([0], [0], marker="o", linestyle="none", color=PALETTE["new"],
-                   markersize=5, markeredgewidth=0, label="TabPFN+MOSA (CRISPR-Cas9)"),
+                   markersize=5, markeredgewidth=0, label="TabPFN+MOSA (CRISPR-Cas12)"),
             Line2D([0], [0], marker="o", linestyle="none", color=PALETTE["lost"],
                    markersize=5, markeredgewidth=0, label="TabPFN+MOSA (drug response)"),
         ],
@@ -1407,7 +1407,7 @@ def figP7_helps_most(decomposed: pd.DataFrame) -> Path:
     fig.legend(
         handles=[
             Patch(facecolor=FAMILY_COLORS["crisprcas9"], edgecolor="black",
-                  linewidth=0.4, label="CRISPR-Cas9"),
+                  linewidth=0.4, label="CRISPR-Cas12"),
             Patch(facecolor=FAMILY_COLORS["drugresponse"], edgecolor="black",
                   linewidth=0.4, label="Drug response"),
         ],
